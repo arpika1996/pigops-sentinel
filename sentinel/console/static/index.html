@@ -227,18 +227,62 @@
     renderRun(s.run); renderStats(s.stats);
   }
 
-  // --------------------------------------------------------------- SSE
+  // ----------------------------------------------------------- polling
+  // An open SSE stream is an open Cloud Run request, and an open request keeps
+  // an instance alive and billable — one forgotten tab cost an instance-hour.
+  // So the page asks instead of listening: every 30 s while the farm is idle,
+  // every 2 s while a run is in progress (the server says which in
+  // `pollAfterMs`), and not at all while the tab is hidden.
+  const IDLE_MS = 30000, ERROR_MS = 10000;
+  let timer = null;
+
+  function schedule(ms) {
+    clearTimeout(timer);
+    if (document.visibilityState === 'hidden') return;               // hidden costs nothing
+    timer = setTimeout(tick, ms);
+  }
+
+  // Merge instead of re-render: existing cards are left alone, so an open
+  // "Reasoned" panel stays open and only genuinely new decisions animate in.
+  function applyState(s) {
+    const ids = s.entries.map((e) => e.id);
+    const firstPaint = !feed.querySelector('.card');
+    const reset = !firstPaint && (ids.length === 0 || !ids.some((id) => seen.has(id)));
+    if (firstPaint || reset) { renderState(s); return; }
+    TZ = s.timezone || TZ;
+    $('farm').textContent = s.farmName || 'demo farm';
+    for (let i = s.entries.length - 1; i >= 0; i--) {                // oldest first, so prepending keeps the order
+      if (!seen.has(s.entries[i].id)) addEntry(s.entries[i], { fresh: true });
+    }
+    renderRun(s.run); renderStats(s.stats);
+  }
+
+  async function tick() {
+    try {
+      const r = await fetch('/api/state', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const s = await r.json();
+      applyState(s);
+      schedule(s.pollAfterMs || IDLE_MS);
+    } catch (err) {
+      const el = $('live');
+      el.className = 'live';
+      el.querySelector('.target').textContent = 'reconnecting…';
+      schedule(ERROR_MS);
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tick();              // catch up the moment it is looked at
+    else clearTimeout(timer);
+  });
+
   function connect() {
     if (new URLSearchParams(location.search).has('static')) {        // one-shot render (screenshots, printing)
       fetch('/api/state').then(r => r.json()).then(renderState);
       return;
     }
-    const es = new EventSource('/events');
-    es.addEventListener('state', (ev) => renderState(JSON.parse(ev.data)));
-    es.addEventListener('log', (ev) => addEntry(JSON.parse(ev.data).entry, { fresh: true }));
-    es.addEventListener('run', (ev) => renderRun(JSON.parse(ev.data).run));
-    es.addEventListener('stats', (ev) => renderStats(JSON.parse(ev.data).stats));
-    es.onerror = () => { const el = $('live'); el.className = 'live'; el.querySelector('.target').textContent = 'reconnecting…'; };
+    tick();
   }
   connect();
 })();

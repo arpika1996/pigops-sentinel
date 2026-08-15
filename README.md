@@ -91,7 +91,16 @@ Builds one image with Cloud Build (`Dockerfile`, `python:3.13-slim`) and deploys
 | Service | Access | Runs as | Notes |
 |---|---|---|---|
 | `sentinel-agent` | **private** — `POST /run` with an OIDC token | `sentinel-agent@` (aiplatform.user, datastore.user) | one run per request, concurrency 1, one instance, 900 s timeout |
-| `sentinel-console` | public URL | `sentinel-console@` (datastore.viewer) | FastAPI + Server-Sent Events, read-only |
+| `sentinel-console` | public URL | `sentinel-console@` (datastore.viewer) | FastAPI, read-only; the page polls (30 s idle, 2 s during a run, nothing while the tab is hidden), max 1 instance, concurrency 80 |
+
+The console is public, so its cost shape is part of its design. It holds nothing open: an
+SSE stream is an open Cloud Run request, and an open request keeps an instance alive and
+billable — one forgotten tab used to cost an instance-hour. The page asks instead, and the
+feed refreshes from Firestore only when its own cache went stale (2 s while a run is in
+progress, 15 s otherwise), under a lock — so ten visitors cost one read, and nobody
+looking costs nothing at all. `--max-instances 1 --min-instances 0` puts a hard ceiling on
+the burn rate whatever the traffic. `/events` still serves SSE for anyone who wants a
+stream; the page does not use it.
 
 …then creates `sentinel-scheduler@` (run.invoker on the agent) and the Cloud Scheduler job **`sentinel-tick`** (`*/15 * * * *`, Europe/Budapest, OIDC, no retries). No secrets anywhere: Application Default Credentials *are* the service accounts.
 
@@ -165,8 +174,8 @@ sentinel/
   logbook.py       sentinelLog document builders
   run.py           the orchestrator: `python -m sentinel.run`
   service.py       the sentinel-agent Cloud Run service (POST /run)
-  console/         the sentinel-console Cloud Run service (FastAPI + SSE + one HTML page)
-tests/             102 tests; no LLM, no Firestore
+  console/         the sentinel-console Cloud Run service (FastAPI, cached reads, one HTML page)
+tests/             107 tests; no LLM, no Firestore
 infra/             setup_gcp.sh (project bootstrap), deploy.sh (Cloud Run + Scheduler)
 docs/              architecture diagram (html source + png), console screenshot, demo script
 ```

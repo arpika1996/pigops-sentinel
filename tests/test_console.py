@@ -125,12 +125,66 @@ def client(feed):
 
 def test_page_and_state_and_health(client):
     page = client.get("/")
-    assert page.status_code == 200 and "PigOps Sentinel" in page.text and "EventSource('/events')" in page.text
+    assert page.status_code == 200 and "PigOps Sentinel" in page.text
+    assert "fetch('/api/state'" in page.text and "EventSource" not in page.text   # polls, never holds a stream open
+    assert "visibilitychange" in page.text                                        # and stops while the tab is hidden
     assert "Observed" in page.text and "Reasoned" in page.text and "Acted" in page.text
     st = client.get("/api/state").json()
     assert st["farmName"] == "PigOps" and len(st["entries"]) == 6 and st["stats"]["runsToday"] == 1
     hz = client.get("/health").json()
     assert hz == {"ok": True, "loaded": True, "entries": 6}
+
+
+def test_state_tells_the_page_how_soon_to_come_back(client, feed):
+    """Idle farm → a slow poll; a run in progress → a fast one."""
+    assert client.get("/api/state").json()["pollAfterMs"] == 30000
+    feed.latest_run = {**(feed.latest_run or {}), "status": "running"}
+    feed.mark_fresh()                                                  # keep the cache warm: no Firestore in a unit test
+    assert client.get("/api/state").json()["pollAfterMs"] == 2000
+
+
+def test_refresh_is_shared_and_ttl_bounded(feed):
+    """Ten visitors in the same TTL window cost one poll, not ten."""
+    import asyncio
+
+    calls = {"n": 0}
+    real_poll = feed.poll
+
+    def counting_poll():
+        calls["n"] += 1
+        return real_poll()
+
+    feed.poll = counting_poll
+    feed._refreshed_at = None                                          # cold cache
+
+    async def drive():
+        await asyncio.gather(*(feed.refresh_if_stale() for _ in range(10)))
+        assert calls["n"] == 1, "a burst of requests must collapse into one read"
+        await feed.refresh_if_stale()
+        assert calls["n"] == 1, "still inside the TTL → no second read"
+        feed._refreshed_at -= feed.ttl_s() + 1                          # age the cache past its TTL
+        await feed.refresh_if_stale()
+        assert calls["n"] == 2, "past the TTL → exactly one more read"
+
+    asyncio.run(drive())
+
+
+def test_refresh_survives_a_firestore_error(feed):
+    """A failed read serves the last good picture instead of a 500, and backs off."""
+    import asyncio
+
+    def boom():
+        raise RuntimeError("firestore is having a moment")
+
+    feed.poll = boom
+    feed._refreshed_at = None
+
+    async def drive():
+        assert await feed.refresh_if_stale() == []
+        assert not feed.is_stale()                                     # marked fresh → we do not hammer it
+        assert feed.state()["farmName"] == "PigOps"                    # the cached picture still serves
+
+    asyncio.run(drive())
 
 
 def test_event_stream_sends_state_then_events_then_heartbeats(feed):

@@ -12,12 +12,20 @@ cheaply for changes:
 Every change becomes an event ``{"type": "log" | "run" | "stats", ...}``
 broadcast to the SSE subscribers; ``state()`` is the full picture a page
 loads first. Read-only by construction: it only calls ``get_*`` methods.
+
+**Reads are demand-driven and shared.** Nothing polls Firestore in the
+background: :meth:`ConsoleFeed.refresh_if_stale` runs a poll only when a
+request arrives and the in-memory picture is older than the TTL, so ten
+visitors cost the same as one, and nobody looking costs nothing at all.
+The TTL is short while a run is in progress (the header is supposed to move)
+and long when the farm is idle — which is most of the day.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -27,6 +35,12 @@ from ..config import Settings, settings as default_settings
 log = logging.getLogger(__name__)
 
 RUNNING = "running"
+
+#: How long the in-memory picture may be served without touching Firestore.
+#: Short while a run is in progress (the header is supposed to move), long
+#: when the farm is idle — which is most of the day.
+TTL_RUNNING_S = 2.0
+TTL_IDLE_S = 15.0
 
 
 def jsonable(value: Any) -> Any:
@@ -45,6 +59,8 @@ class ConsoleFeed:
     repo: Any
     cfg: Settings = field(default_factory=lambda: default_settings)
     max_entries: int = 200
+    ttl_running_s: float = TTL_RUNNING_S
+    ttl_idle_s: float = TTL_IDLE_S
     entries: list[dict[str, Any]] = field(default_factory=list)      # newest first, raw (datetimes kept)
     runs: dict[str, dict[str, Any]] = field(default_factory=dict)     # today's runs + the latest, by id
     latest_run: dict[str, Any] | None = None
@@ -53,6 +69,8 @@ class ConsoleFeed:
     _day: date | None = None
     _subscribers: set[asyncio.Queue] = field(default_factory=set)
     _run_signature: tuple | None = None
+    _refreshed_at: float | None = None                                # monotonic seconds of the last Firestore poll
+    _refresh_lock: asyncio.Lock | None = None                         # one in-flight refresh, however many callers
     loaded: bool = False
 
     # ---------------------------------------------------------------- load
@@ -128,6 +146,41 @@ class ConsoleFeed:
         log.info("log reset detected — reloaded: %d entries", len(self.entries))
         return [{"type": "state", **self.state()}]
 
+    # ------------------------------------------------------------- caching
+    def ttl_s(self) -> float:
+        """Short while a run is in progress, long when the farm is idle."""
+        running = bool(self.latest_run and self.latest_run.get("status") == RUNNING)
+        return self.ttl_running_s if running else self.ttl_idle_s
+
+    def is_stale(self) -> bool:
+        return self._refreshed_at is None or (time.monotonic() - self._refreshed_at) >= self.ttl_s()
+
+    def mark_fresh(self) -> None:
+        self._refreshed_at = time.monotonic()
+
+    async def refresh_if_stale(self) -> list[dict[str, Any]]:
+        """Poll Firestore only if the in-memory picture aged past the TTL.
+
+        This is what makes ten visitors cost the same as one: the poll runs at
+        most once per TTL for the whole instance, under a lock so that a burst
+        of requests produces a single read, and not at all while nobody asks.
+        """
+        if not self.is_stale():
+            return []
+        if self._refresh_lock is None:
+            self._refresh_lock = asyncio.Lock()
+        async with self._refresh_lock:
+            if not self.is_stale():                    # somebody refreshed while we waited
+                return []
+            try:
+                events = await asyncio.to_thread(self.poll)
+            except Exception:  # noqa: BLE001 — serve the last good picture rather than an error
+                log.exception("console refresh failed; serving the cached state")
+                self.mark_fresh()                      # do not hammer Firestore on a persistent failure
+                return []
+            self.mark_fresh()
+            return events
+
     # --------------------------------------------------------------- state
     def state(self) -> dict[str, Any]:
         return {
@@ -197,10 +250,17 @@ class ConsoleFeed:
                     break
 
     async def run_forever(self, interval_s: float = 2.0) -> None:
-        """Background task: poll → broadcast, forever; a poll error is logged and retried."""
+        """Background task: poll → broadcast, forever; a poll error is logged and retried.
+
+        Off by default — it reads Firestore whether or not anyone is watching,
+        which is exactly the bill we did not want. Serving uses
+        :meth:`refresh_if_stale` instead; this stays for local development
+        (``--poller``) and for tests.
+        """
         while True:
             try:
                 events = await asyncio.to_thread(self.poll)
+                self.mark_fresh()
                 if events:
                     self.broadcast(events)
             except asyncio.CancelledError:

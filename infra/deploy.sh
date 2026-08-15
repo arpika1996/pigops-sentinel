@@ -67,10 +67,18 @@ log "$AGENT_SERVICE → $AGENT_URL (image $IMAGE)"
 
 # --- 2. the console, same image, public -----------------------------------
 log "Deploying $CONSOLE_SERVICE (public, read-only)"
+# Cost shape (the console is public, so this is a spend limit as much as a config):
+#   * max-instances 1  — a hard ceiling on the burn rate whatever the traffic
+#   * min-instances 0  — an unvisited console costs nothing
+#   * concurrency 80   — one instance serves a crowd; visitors share the same cached reads
+#   * timeout 300      — the page polls (sub-second requests); nothing needs to hold a request open
+#   * CPU throttling left at the default (allocated only during requests)
+#   * startup CPU boost left ON — the service scales to zero, so a visitor's first
+#     request is a cold start; a few seconds of boosted CPU is worth the good impression
 gcloud run deploy "$CONSOLE_SERVICE" --image "$IMAGE" --region "$REGION" --quiet \
   --service-account "$CONSOLE_SA" --allow-unauthenticated \
   --command python --args=-m,sentinel.console \
-  --concurrency 80 --max-instances 2 --min-instances 0 --timeout 3600 --memory 512Mi --cpu 1 \
+  --concurrency 80 --max-instances 1 --min-instances 0 --timeout 300 --memory 512Mi --cpu 1 \
   --set-env-vars "$CONSOLE_ENV"
 CONSOLE_URL="$(gcloud run services describe "$CONSOLE_SERVICE" --region "$REGION" --format='value(status.url)')"
 log "$CONSOLE_SERVICE → $CONSOLE_URL"
