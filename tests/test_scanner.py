@@ -45,46 +45,46 @@ def _by_type(cands: list[Candidate], sig: str) -> dict[str, Candidate]:
 def test_finds_exactly_the_planted_candidates(candidates):
     found = {(c.signal_type, c.room_name) for c in candidates}
     assert found == {
-        ("MORTALITY_SPIKE", "H2 / 5. terem"),
-        ("MORTALITY_SPIKE", "H1 / 3. terem"),
-        ("VALVE_INSTABILITY", "H1 / 4. terem"),
-        ("SILENT_ROOM", "H2 / 6. terem"),
-        ("DEADLINE_RISK", "H1 / 2. terem"),
-        ("DEADLINE_RISK", "H2 / 3. terem"),
+        ("MORTALITY_SPIKE", "B-Telep / 5.Terem"),
+        ("MORTALITY_SPIKE", "A-Telep / 3.Terem"),
+        ("VALVE_INSTABILITY", "A-Telep / 4.Terem"),
+        ("SILENT_ROOM", "B-Telep / 6.Terem"),
+        ("DEADLINE_RISK", "A-Telep / 2.Terem"),
+        ("DEADLINE_RISK", "B-Telep / 3.Terem"),
     }
 
 
 def test_decoys_are_not_candidates(candidates):
     names = {(c.signal_type, c.room_name) for c in candidates}
-    assert ("MORTALITY_SPIKE", "H1 / 2. terem") not in names      # 3 deaths < 4
-    assert ("SILENT_ROOM", "H2 / 1. terem") not in names          # empty room
-    assert ("DEADLINE_RISK", "H1 / 5. terem") not in names        # touched task
+    assert ("MORTALITY_SPIKE", "A-Telep / 2.Terem") not in names      # 3 deaths < 4
+    assert ("SILENT_ROOM", "B-Telep / 1.Terem") not in names          # empty room
+    assert ("DEADLINE_RISK", "A-Telep / 5.Terem") not in names        # touched task
     titles = {c.task.title for c in candidates if c.task}
-    assert "Takarmányadagoló beállítás – H1 / 5. terem" not in titles
+    assert "Takarmányadagoló beállítás – A-Telep / 5.Terem" not in titles
     assert "Havi fertőtlenítés – H2" not in titles
 
 
 # ------------------------------------------------------------- per-rule
 def test_mortality_spike_evidence(candidates):
     spikes = _by_type(candidates, "MORTALITY_SPIKE")
-    clear = spikes["H2 / 5. terem"]
+    clear = spikes["B-Telep / 5.Terem"]
     assert clear.evidence["deaths_today"] == 5 and clear.evidence["records_today"] == 2
     assert clear.evidence["causes_today"] == {"Légzőszervi": 5}
-    assert "5 deaths recorded today in H2 / 5. terem" in clear.observation
-    chronic = spikes["H1 / 3. terem"]
+    assert "5 deaths recorded today in B-Telep / 5.Terem" in clear.observation
+    chronic = spikes["A-Telep / 3.Terem"]
     assert chronic.evidence["deaths_today"] == 4  # exactly at threshold → still a candidate
 
 
 def test_valve_instability_evidence(candidates):
-    c = _by_type(candidates, "VALVE_INSTABILITY")["H1 / 4. terem"]
-    assert c.evidence["worst_valve"] == "407"
+    c = _by_type(candidates, "VALVE_INSTABILITY")["A-Telep / 4.Terem"]
+    assert c.evidence["worst_valve"] == "A4-07"
     assert c.evidence["worst_valve_changes"] >= 8
     assert c.evidence["sign_flips"] >= 6
-    assert "Valve 407 in H1 / 4. terem" in c.observation
+    assert "Valve A4-07 in A-Telep / 4.Terem" in c.observation
 
 
 def test_silent_room_evidence(candidates):
-    c = _by_type(candidates, "SILENT_ROOM")["H2 / 6. terem"]
+    c = _by_type(candidates, "SILENT_ROOM")["B-Telep / 6.Terem"]
     assert c.evidence["pigs_in_room"] > 100
     assert c.evidence["hours_silent"] > 60
     assert "no data has been written" in c.observation
@@ -97,12 +97,12 @@ def test_deadline_risk_evidence(candidates):
     assert risks["task-due-soon"].evidence["kind"] == "due_soon_untouched"
     assert 0 < risks["task-due-soon"].evidence["hours_left"] <= 24
     # people are named, not addressed by email
-    assert "Nagy László" in risks["task-overdue"].observation
+    assert "Halászi Réka" in risks["task-overdue"].observation
     assert "@" not in risks["task-overdue"].observation
 
 
 # ------------------------------------------------------------- invariants
-ID_PATTERNS = [r"\bh[12]-t\d", r"-v\d+\b", r"demo-farm", r"\btask-[a-z]", r"demo-(admin|worker)"]
+ID_PATTERNS = [r"\b[ab]-telep-t\d", r"-v\d+\b", r"demo-farm", r"\btask-[a-z]", r"demo-(admin|worker)"]
 
 
 def test_no_raw_ids_in_human_text(candidates):
@@ -128,8 +128,8 @@ def test_stable_ordering(snapshot, cfg):
 def test_thresholds_are_respected(snapshot, cfg):
     stricter = cfg.model_copy(update={"mortality_spike_threshold": 5})
     found = {(c.signal_type, c.room_name) for c in scan(snapshot, stricter)}
-    assert ("MORTALITY_SPIKE", "H1 / 3. terem") not in found
-    assert ("MORTALITY_SPIKE", "H2 / 5. terem") in found
+    assert ("MORTALITY_SPIKE", "A-Telep / 3.Terem") not in found
+    assert ("MORTALITY_SPIKE", "B-Telep / 5.Terem") in found
 
     lenient_silence = cfg.model_copy(update={"silent_room_hours": 24 * 5})
     assert not any(c.signal_type == "SILENT_ROOM" for c in scan(snapshot, lenient_silence))

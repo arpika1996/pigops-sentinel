@@ -33,23 +33,25 @@ def test_structure_counts(demo_plan):
     farm = [w for w in demo_plan.writes if w.path == f"{S.COL_TELEPEK}/{FARM_ID_DEFAULT}"]
     assert len(farm) == 1 and farm[0].data["nev"]  # farm name field is `nev`
     barns = _docs(demo_plan, S.COL_HIZLALDAK)
-    assert {w.data["name"] for w in barns} == {"H1", "H2"}  # barn name field is `name`
+    assert {w.data["name"] for w in barns} == {"A-Telep", "B-Telep"}  # barn name field is `name`
     rooms = _docs(demo_plan, S.COL_TERMEK)
     assert len(rooms) == len(BARNS) * ROOMS_PER_BARN
     valves = _docs(demo_plan, S.COL_SZELEPEK)
     assert len(valves) == len(BARNS) * ROOMS_PER_BARN * VALVES_PER_ROOM
 
 
-def test_valve_numbering_encodes_the_room(demo_plan):
-    """Room 1 → 101–116, room 2 → 201–216 … (farm convention)."""
+def test_valve_names_encode_barn_and_room(demo_plan):
+    """A-Telep / 4.Terem valve 7 → "A4-07" (the demo farm's own convention, unlike the real 101–116)."""
     for w in _docs(demo_plan, S.COL_SZELEPEK):
         segs = w.path.split("/")
-        terem = segs[segs.index(S.COL_TERMEK) + 1]      # e.g. h1-t4
+        barn = segs[segs.index(S.COL_HIZLALDAK) + 1]      # e.g. a-telep
+        terem = segs[segs.index(S.COL_TERMEK) + 1]        # e.g. a-telep-t4
         room_idx = int(terem.rsplit("t", 1)[1])
-        n = int(w.data["name"])
-        assert n // 100 == room_idx, w.path
-        assert 1 <= n % 100 <= VALVES_PER_ROOM
-    assert valve_name(4, 7) == "407"
+        letter, rest = w.data["name"][0], w.data["name"][1:]
+        assert letter == barn[0].upper(), w.path
+        r, n = rest.split("-")
+        assert int(r) == room_idx and 1 <= int(n) <= VALVES_PER_ROOM, w.path
+    assert valve_name("a-telep", 4, 7) == "A4-07"
 
 
 def test_every_valve_and_change_carries_telep_id(demo_plan):
@@ -108,20 +110,20 @@ def _deaths_today_by_room(plan, clock: Clock):
 
 def test_planted_mortality_spike_and_decoy(demo_plan, frozen_clock):
     deaths = _deaths_today_by_room(demo_plan, frozen_clock)
-    assert deaths[room_id("h2", 5)] == 5     # clear spike
-    assert deaths[room_id("h1", 3)] == 4     # chronic room, exactly at threshold
-    assert deaths[room_id("h1", 2)] == 3     # decoy: below threshold
+    assert deaths[room_id("b-telep", 5)] == 5     # clear spike
+    assert deaths[room_id("a-telep", 3)] == 4     # chronic room, exactly at threshold
+    assert deaths[room_id("a-telep", 2)] == 3     # decoy: below threshold
 
 
 def test_planted_valve_flapping(demo_plan, frozen_clock):
     per_valve = Counter()
     for w in _docs(demo_plan, S.COL_MODOSITASOK):
-        if w.data["teremId"] == room_id("h1", 4) and frozen_clock.local_day(w.data["datum"]) == frozen_clock.today():
+        if w.data["teremId"] == room_id("a-telep", 4) and frozen_clock.local_day(w.data["datum"]) == frozen_clock.today():
             per_valve[w.data["szelepName"]] += 1
-    assert per_valve["407"] >= 8
+    assert per_valve["A4-07"] >= 8
     # the valve doc's roll-up fields agree with the log
-    v407 = next(w for w in _docs(demo_plan, S.COL_SZELEPEK) if w.data["name"] == "407" and "/h1-t4/" in w.path)
-    assert v407.data["modositas_szama"] == per_valve["407"]
+    v407 = next(w for w in _docs(demo_plan, S.COL_SZELEPEK) if w.data["name"] == "A4-07" and "/a-telep-t4/" in w.path)
+    assert v407.data["modositas_szama"] == per_valve["A4-07"]
     assert v407.data["last_modified_day"] == frozen_clock.today().isoformat()
 
 
@@ -135,8 +137,8 @@ def test_planted_silent_room_and_empty_decoy(demo_plan, frozen_clock):
         lm = w.data.get("last_modified")
         if lm and (last[terem] is None or lm > last[terem]):
             last[terem] = lm
-    silent = room_id("h2", 6)
-    empty = room_id("h2", 1)
+    silent = room_id("b-telep", 6)
+    empty = room_id("b-telep", 1)
     assert pigs[silent] > 100 and frozen_clock.hours_since(last[silent]) > 60
     assert pigs[empty] == 0 and frozen_clock.hours_since(last[empty]) > 24 * 10
     # every other populated room was active within the last day

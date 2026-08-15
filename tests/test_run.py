@@ -27,7 +27,7 @@ from sentinel.run import (
 from sentinel.scanner import scan
 from tests.fakes import FakeNotifier, FakeRepository, snapshot_from_plan
 
-ID_PATTERNS = [r"\bh[12]-t\d", r"-v\d+\b", r"demo-farm", r"\btask-[a-z]", r"demo-(admin|worker)"]
+ID_PATTERNS = [r"\b[ab]-telep-t\d", r"-v\d+\b", r"demo-farm", r"\btask-[a-z]", r"demo-(admin|worker)"]
 
 
 # --------------------------------------------------------------------------
@@ -139,8 +139,8 @@ def test_every_candidate_is_logged_as_it_is_decided(repo, cfg, loader, snapshot,
         assert spike["status"] == STATUS_DECIDED and spike["decision"] == "ACT" and spike["proposedAction"]["kind"] == "task"
         act = spike["actionTaken"]
         assert act["type"] == "task" and act["status"] == "done" and act["taskId"] in repo.tasks
-        assert act["assigneeName"] == "Kovács Péter" and act["notifications"][0]["status"] == "skipped"
-        assert spike["roomName"].endswith(repo.tasks[act["taskId"]].terem_nev)     # "H1 / 3. terem" vs "3. terem"
+        assert act["assigneeName"] == "Fenyvesi Márton" and act["notifications"][0]["status"] == "skipped"
+        assert spike["roomName"].endswith(repo.tasks[act["taskId"]].terem_nev)     # "A-Telep / 3.Terem" vs "3.Terem"
     for dl in by_signal["DEADLINE_RISK"]:
         assert dl["proposedAction"]["kind"] == "notification"
         act = dl["actionTaken"]
@@ -165,7 +165,7 @@ def test_run_doc_lifecycle(repo, cfg, loader, frozen_clock):
     assert doc["decisions"] == {"NOISE": 0, "WATCH": 1, "ACT": 4}
     assert doc["tasksCreated"] == 2 and doc["notificationsSent"] == 0
     assert doc["tokens"] == 6 * 60 and doc["lastLogId"] == rep.log_ids[-1] and doc["error"] is None
-    assert doc["farmName"].startswith("Kisréti")
+    assert doc["farmName"].startswith("PigOps")
 
     upserts = [c[2] for c in repo.calls if c[0] == "upsert_run" and c[1] == rep.run_id]
     phases = [u["phase"] for u in upserts if "phase" in u]
@@ -274,7 +274,7 @@ def test_second_run_skips_what_the_first_one_handled(repo, cfg, snapshot):
     assert len(handled) == 4 and {s for s, _ in handled} == {"MORTALITY_SPIKE", "DEADLINE_RISK"}
     # what is left is what still needs judgement: the valve (WATCH) and the silent room (NOISE with this fake)
     assert {(c.signal_type, c.room_name) for c in second.candidates} == {
-        ("VALVE_INSTABILITY", "H1 / 4. terem"), ("SILENT_ROOM", "H2 / 6. terem")}
+        ("VALVE_INSTABILITY", "A-Telep / 4.Terem"), ("SILENT_ROOM", "B-Telep / 6.Terem")}
     assert second.tasks_created == 0 and len(repo.get_sentinel_tasks()) == tasks_after_first   # nothing was doubled
     assert FakeInvestigator.created[1].seen == [c.key for c in second.candidates]   # handled ones never reached the LLM
     doc = repo.runs[second.run_id]

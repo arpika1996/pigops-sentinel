@@ -7,34 +7,38 @@ same ``now`` produce identical data.
 
 Farm layout
 -----------
-* ``Kisréti Sertéstelep (demo)`` — 2 barns (H1, H2), 6 rooms each,
-  16 valves per room. Valve numbers encode the room: room 1 → 101–116,
-  room 2 → 201–216, … (the farm's own convention).
+* ``PigOps`` — the PigOps *demo* farm (the one that exists in the app as a
+  playground: barns ``A-Telep`` and ``B-Telep``, rooms ``1.Terem`` …),
+  extended to 6 rooms per barn and 16 valves per room. Valve names encode
+  barn and room: ``A5-04`` = valve 4 of A-Telep / 5.Terem. Deliberately
+  unlike any real PigOps farm (those are H1–H8 / M1–M2 with 101–116 valves).
+* People are fictional (Fenyvesi Márton — farm admin; Halászi Réka and
+  Csontos Bertalan — workers), e-mails on the reserved ``.example`` domain.
 * 21 days of history: mortality records, valve modifications, counting days.
 
 Planted anomalies (what the Phase-1 scanner must find today)
 ------------------------------------------------------------
-1. ``MORTALITY_SPIKE``   H2 / 5. terem — 5 deaths today (2 records) against a
-                         14-day mean well below 1/day. Clear ACT.
-2. ``MORTALITY_SPIKE``   H1 / 3. terem — 4 deaths today, BUT the room has a
+1. ``MORTALITY_SPIKE``   B-Telep / 5.Terem — 5 deaths today (2 records) against
+                         a 14-day mean well below 1/day. Clear ACT.
+2. ``MORTALITY_SPIKE``   A-Telep / 3.Terem — 4 deaths today, BUT the room has a
                          known respiratory problem (≈2.5/day for 10 days) and
                          an open treatment task with daily work-log entries.
                          A candidate the agent should judge NOISE/WATCH.
-3. ``VALVE_INSTABILITY`` H1 / 4. terem — valve 407 changed 8× today, flipping
-                         +2/−2 (data-entry flapping).
-4. ``SILENT_ROOM``       H2 / 6. terem — populated (≈190 pigs) but no data
+3. ``VALVE_INSTABILITY`` A-Telep / 4.Terem — valve A4-07 changed 8× today,
+                         flipping +2/−2 (data-entry flapping).
+4. ``SILENT_ROOM``       B-Telep / 6.Terem — populated (≈190 pigs) but no data
                          written for ~3 days.
-5. ``DEADLINE_RISK``     task "Szellőző ventilátor javítása – H1 / 2. terem"
+5. ``DEADLINE_RISK``     task "Szellőző ventilátor javítása – A-Telep / 2.Terem"
                          overdue by 2 days, never touched.
-6. ``DEADLINE_RISK``     task "Itatók ellenőrzése – H2 / 3. terem" due in 6 h,
-                         never touched.
+6. ``DEADLINE_RISK``     task "Itatók ellenőrzése – B-Telep / 3.Terem" due in
+                         6 h, never touched.
 
 Decoys (must NOT be candidates)
 -------------------------------
-* H1 / 2. terem — 3 deaths today: below the absolute threshold of 4.
-* H2 / 1. terem — empty room between batches, silent for 12 days: silence
+* A-Telep / 2.Terem — 3 deaths today: below the absolute threshold of 4.
+* B-Telep / 1.Terem — empty room between batches, silent for 12 days: silence
   only matters for populated rooms.
-* task "Takarmányadagoló beállítás – H1 / 5. terem" — due in 10 h but has
+* task "Takarmányadagoló beállítás – A-Telep / 5.Terem" — due in 10 h but has
   work-log entries, i.e. someone is on it.
 """
 
@@ -69,30 +73,33 @@ class SeedPlan:
 # --------------------------------------------------------------------------
 # Static demo entities
 # --------------------------------------------------------------------------
+# Everything a viewer can read is defined here, in one place. It mirrors the
+# "PigOps" demo farm that already exists in the app (A-Telep / B-Telep,
+# "1.Terem" spelling) and stays clearly apart from the real farms.
 FARM_ID_DEFAULT = "demo-farm"
-FARM_NAME = "Kisréti Sertéstelep (demo)"
+FARM_NAME = "PigOps"
 
-BARNS = [("h1", "H1"), ("h2", "H2")]
+BARNS = [("a-telep", "A-Telep"), ("b-telep", "B-Telep")]
 ROOMS_PER_BARN = 6
 VALVES_PER_ROOM = 16
 
 USERS = [
-    # uid, display name, email, farm role
-    ("demo-admin", "Kovács Péter", "peter.kovacs@demo.pigops.hu", S.ROLE_ADMIN),
-    ("demo-worker-1", "Nagy László", "laszlo.nagy@demo.pigops.hu", S.ROLE_USER),
-    ("demo-worker-2", "Szabó Anna", "anna.szabo@demo.pigops.hu", S.ROLE_USER),
+    # uid, display name, email, farm role — fictional people, reserved domain
+    ("demo-admin", "Fenyvesi Márton", "marton.fenyvesi@pigops-demo.example", S.ROLE_ADMIN),
+    ("demo-worker-1", "Halászi Réka", "reka.halaszi@pigops-demo.example", S.ROLE_USER),
+    ("demo-worker-2", "Csontos Bertalan", "bertalan.csontos@pigops-demo.example", S.ROLE_USER),
 ]
 
 MORTALITY_CAUSES = ["Légzőszervi", "Hasmenés", "Sérülés", "Hirtelen szívhalál", "Ismeretlen", "Farokrágás"]
 
 # Special rooms (barn id, room index 1..6)
-SPIKE_ROOM = ("h2", 5)          # clear mortality spike
-CHRONIC_ROOM = ("h1", 3)        # known problem, open treatment task
-DECOY_MORTALITY_ROOM = ("h1", 2)  # 3 today — below threshold
-FLAP_ROOM = ("h1", 4)           # valve flapping
-FLAP_VALVE_NO = 7               # valve "407"
-SILENT_ROOM = ("h2", 6)         # populated, no data ~3 days
-EMPTY_ROOM = ("h2", 1)          # between batches, legitimately silent
+SPIKE_ROOM = ("b-telep", 5)          # clear mortality spike
+CHRONIC_ROOM = ("a-telep", 3)        # known problem, open treatment task
+DECOY_MORTALITY_ROOM = ("a-telep", 2)  # 3 today — below threshold
+FLAP_ROOM = ("a-telep", 4)           # valve flapping
+FLAP_VALVE_NO = 7                    # valve "A4-07"
+SILENT_ROOM = ("b-telep", 6)         # populated, no data ~3 days
+EMPTY_ROOM = ("b-telep", 1)          # between batches, legitimately silent
 
 HISTORY_DAYS = 21
 
@@ -101,13 +108,23 @@ def room_id(barn_id: str, idx: int) -> str:
     return f"{barn_id}-t{idx}"
 
 
+def room_name(idx: int) -> str:
+    """The app's own spelling: "1.Terem" (no space, capital T)."""
+    return f"{idx}.Terem"
+
+
+def room_label(barn_id: str, idx: int) -> str:
+    """What a human sees: "A-Telep / 5.Terem"."""
+    return f"{dict(BARNS)[barn_id]} / {room_name(idx)}"
+
+
 def valve_id(barn_id: str, idx: int, n: int) -> str:
     return f"{barn_id}-t{idx}-v{n}"
 
 
-def valve_name(room_idx: int, n: int) -> str:
-    """Room 1 → 101..116, room 2 → 201..216, ..."""
-    return str(room_idx * 100 + n)
+def valve_name(barn_id: str, room_idx: int, n: int) -> str:
+    """Barn letter + room + valve: A-Telep / 5.Terem valve 4 → "A5-04"."""
+    return f"{dict(BARNS)[barn_id][0]}{room_idx}-{n:02d}"
 
 
 # --------------------------------------------------------------------------
@@ -206,7 +223,7 @@ class DemoDataBuilder:
                 empty = (barn_id, idx) == EMPTY_ROOM
                 nap = 0 if empty else self.rng.randint(18, 96)
                 self.plan.add(self._farm(S.COL_HIZLALDAK, barn_id, S.COL_TERMEK, rid), {
-                    "name": f"{idx}. terem",
+                    "name": room_name(idx),
                     "order": idx,
                     "hizlalasiNap": nap,
                     "becsultSuly": 0.0 if empty else round(28 + nap * 0.78, 1),
@@ -242,9 +259,9 @@ class DemoDataBuilder:
             "hizlaldaId": barn_id,
             "hizlaldaName": barn_name,
             "teremId": rid,
-            "teremName": f"{idx}. terem",
+            "teremName": room_name(idx),
             "szelepId": vid,
-            "szelepName": valve_name(idx, n),
+            "szelepName": valve_name(barn_id, idx, n),
             "darab": darab,
             "ok": cause,
             "datum": when,
@@ -270,7 +287,7 @@ class DemoDataBuilder:
             "hizlaldaId": barn_id,
             "teremId": rid,
             "szelepId": vid,
-            "szelepName": valve_name(idx, n),
+            "szelepName": valve_name(barn_id, idx, n),
             "modositas": delta,
             "datum": when,
         }
@@ -327,7 +344,7 @@ class DemoDataBuilder:
                 for _ in range(self._poisson(0.3)):
                     self._mortality(barn_id, idx, self._t_today_before_now(self.rng.uniform(0.2, 0.8)), 1, self.rng.choice(MORTALITY_CAUSES))
 
-        # 1. clear spike: H2 / 5. terem — 3 + 2 deaths, respiratory
+        # 1. clear spike: B-Telep / 5.Terem — 3 + 2 deaths, respiratory
         self._mortality(*SPIKE_ROOM, self._t_today_before_now(0.35), 3, "Légzőszervi", valve_n=4)
         self._mortality(*SPIKE_ROOM, self._t_today_before_now(0.7), 2, "Légzőszervi", valve_n=9)
         # 2. chronic room: 2 + 2 today (candidate, but explained)
@@ -336,7 +353,7 @@ class DemoDataBuilder:
         # decoy: 3 today, below threshold
         self._mortality(*DECOY_MORTALITY_ROOM, self._t_today_before_now(0.4), 2, "Hasmenés", valve_n=6)
         self._mortality(*DECOY_MORTALITY_ROOM, self._t_today_before_now(0.75), 1, "Sérülés", valve_n=13)
-        # 3. flapping valve 407: 8 modifications alternating +2/-2
+        # 3. flapping valve A4-07: 8 modifications alternating +2/-2
         for i, delta in enumerate([2, -2, 2, -2, 2, -2, 1, -1]):
             self._valve_change(*FLAP_ROOM, FLAP_VALVE_NO, self._t_today_before_now(0.3 + i * 0.07), delta)
 
@@ -366,7 +383,7 @@ class DemoDataBuilder:
             }
             if room_idx is not None:
                 doc["teremId"] = room_id(barn, room_idx)
-                doc["teremNev"] = f"{room_idx}. terem"
+                doc["teremNev"] = room_name(room_idx)
             if done:
                 doc["completedAt"] = completed or (created + timedelta(days=1))
             self.plan.add(self._farm(S.COL_FELADATOK, tid), doc)
@@ -377,34 +394,35 @@ class DemoDataBuilder:
                 })
             self.stats["feladatok"] += 1
 
+        A, B = BARNS[0][0], BARNS[1][0]
         # 5. overdue, untouched
-        task("task-overdue", "Szellőző ventilátor javítása – H1 / 2. terem",
-             "A 2. terem keleti ventilátora szakaszosan leáll, cserélni vagy javítani kell.",
-             barn="h1", room_idx=2, deadline=self._t_local(2, 16.0), assignee=w1_email, created_offset_days=6)
+        task("task-overdue", f"Szellőző ventilátor javítása – {room_label(A, 2)}",
+             f"A {room_name(2)} keleti ventilátora szakaszosan leáll, cserélni vagy javítani kell.",
+             barn=A, room_idx=2, deadline=self._t_local(2, 16.0), assignee=w1_email, created_offset_days=6)
         # 6. due in 6 h, untouched
-        task("task-due-soon", "Itatók ellenőrzése – H2 / 3. terem",
+        task("task-due-soon", f"Itatók ellenőrzése – {room_label(B, 3)}",
              "Két itatószelep gyengén ad vizet, átmosás és nyomás-ellenőrzés.",
-             barn="h2", room_idx=3, deadline=self.now + timedelta(hours=6), assignee=w2_email, created_offset_days=4)
+             barn=B, room_idx=3, deadline=self.now + timedelta(hours=6), assignee=w2_email, created_offset_days=4)
         # decoy: due in 10 h but in progress
-        task("task-in-progress", "Takarmányadagoló beállítás – H1 / 5. terem",
+        task("task-in-progress", f"Takarmányadagoló beállítás – {room_label(A, 5)}",
              "Az adagoló 3-as fejénél túladagolás, kalibrálni kell.",
-             barn="h1", room_idx=5, deadline=self.now + timedelta(hours=10), assignee=w1_email, created_offset_days=2,
+             barn=A, room_idx=5, deadline=self.now + timedelta(hours=10), assignee=w1_email, created_offset_days=2,
              work_log=[(20, "Kalibrálás elkezdve, alkatrész rendelve."), (3, "Alkatrész megjött, délután beszerelem.")])
         # far future
-        task("task-later", "Havi fertőtlenítés – H2",
+        task("task-later", f"Havi fertőtlenítés – {dict(BARNS)[B]}",
              "Teljes hízlalda fertőtlenítés a szokásos protokoll szerint.",
-             barn="h2", room_idx=None, deadline=self.now + timedelta(days=5), assignee=w2_email, created_offset_days=1)
+             barn=B, room_idx=None, deadline=self.now + timedelta(days=5), assignee=w2_email, created_offset_days=1)
         # context for the chronic room
-        task("task-chronic", "Légzőszervi kezelés folytatása – H1 / 3. terem",
+        task("task-chronic", f"Légzőszervi kezelés folytatása – {room_label(A, 3)}",
              "Állatorvosi utasítás szerint 7 napos kúra, napi ellenőrzéssel. Elhullás várhatóan emelkedett marad a kúra végéig.",
-             barn="h1", room_idx=3, deadline=self.now + timedelta(days=3), assignee=w2_email, created_offset_days=8,
+             barn=A, room_idx=3, deadline=self.now + timedelta(days=3), assignee=w2_email, created_offset_days=8,
              work_log=[(72, "3. napi adag beadva, 2 állat elkülönítve."), (48, "4. nap: javulás lassú, állatorvos értesítve."),
                        (26, "5. nap: kezelés folytatva."), (5, "6. nap: adag beadva reggel.")])
         # closed history
-        task("task-done-1", "Trágyacsatorna tisztítás – H1", "Heti tisztítás.", barn="h1", room_idx=None,
+        task("task-done-1", f"Trágyacsatorna tisztítás – {dict(BARNS)[A]}", "Heti tisztítás.", barn=A, room_idx=None,
              deadline=self._t_local(9, 12.0), assignee=w1_email, created_offset_days=12, done=True,
              completed=self._t_local(9, 10.5))
-        task("task-done-2", "Világítás javítása – H2 / 4. terem", "Két fénycső cseréje.", barn="h2", room_idx=4,
+        task("task-done-2", f"Világítás javítása – {room_label(B, 4)}", "Két fénycső cseréje.", barn=B, room_idx=4,
              deadline=self._t_local(5, 12.0), assignee=w1_email, created_offset_days=7, done=True,
              completed=self._t_local(6, 15.2))
 
@@ -419,7 +437,7 @@ class DemoDataBuilder:
                     today_deltas = self.valve_today.get(vid, [])
                     last = self.valve_last.get(vid)
                     doc: dict[str, Any] = {
-                        "name": valve_name(idx, n),
+                        "name": valve_name(barn_id, idx, n),
                         "szelep": self.valve_counts[vid],
                         "modositas": sum(today_deltas),
                         "modositas_szama": len(today_deltas),
@@ -433,9 +451,6 @@ class DemoDataBuilder:
                     self.stats["szelepek"] += 1
 
     def _summary(self) -> None:
-        def room_label(barn_id: str, idx: int) -> str:
-            return f"{dict(BARNS)[barn_id]} / {idx}. terem"
-
         pigs_per_room = {}
         for barn_id, _ in BARNS:
             for idx in range(1, ROOMS_PER_BARN + 1):
@@ -452,9 +467,9 @@ class DemoDataBuilder:
             "pigs_per_room": pigs_per_room,
             "planted": {
                 "MORTALITY_SPIKE": [room_label(*SPIKE_ROOM), room_label(*CHRONIC_ROOM) + " (chronic — expect NOISE/WATCH)"],
-                "VALVE_INSTABILITY": [f"{room_label(*FLAP_ROOM)} valve {valve_name(FLAP_ROOM[1], FLAP_VALVE_NO)} (8 changes)"],
+                "VALVE_INSTABILITY": [f"{room_label(*FLAP_ROOM)} valve {valve_name(*FLAP_ROOM, FLAP_VALVE_NO)} (8 changes)"],
                 "SILENT_ROOM": [room_label(*SILENT_ROOM)],
-                "DEADLINE_RISK": ["task-overdue (H1 / 2. terem, overdue 2 days)", "task-due-soon (H2 / 3. terem, due in 6 h)"],
+                "DEADLINE_RISK": [f"task-overdue ({room_label(BARNS[0][0], 2)}, overdue 2 days)", f"task-due-soon ({room_label(BARNS[1][0], 3)}, due in 6 h)"],
             },
             "decoys": [
                 room_label(*DECOY_MORTALITY_ROOM) + ": 3 deaths today (below threshold)",

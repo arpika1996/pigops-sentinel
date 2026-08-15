@@ -51,9 +51,9 @@ def test_decided_entry_has_spec_fields_and_extras(candidates):
                  action_title="Check the room", action_body="Call the vet.",
                  context_gathered=[ContextItem(tool="get_mortality_history", why="baseline", finding="mean 0.7")])
     e = build_log_entry(_result(c, d, [_call("get_room_stats", room=c.room_name), _call("get_mortality_history", room=c.room_name, days=14)]),
-                        "run-1", "Kisréti Sertéstelep (demo)", AT)
+                        "run-1", "PigOps Sertéstelep (demo)", AT)
     assert SPEC_FIELDS <= set(e)
-    assert e["runId"] == "run-1" and e["timestamp"] == AT and e["farmName"].startswith("Kisréti")
+    assert e["runId"] == "run-1" and e["timestamp"] == AT and e["farmName"].startswith("PigOps")
     assert e["roomName"] == c.room_name and e["signalType"] == "MORTALITY_SPIKE" and e["observation"] == c.observation
     assert e["decision"] == "ACT" and e["severity"] == "high" and e["reasoning"].startswith("5 today")
     assert e["actionTaken"] is None and e["escalation"] is None       # Phase 4/5 fill these

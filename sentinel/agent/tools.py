@@ -3,7 +3,7 @@
 Design rules (SPEC §4, §8):
 
 * **Names in, names out.** The model addresses rooms by their display name
-  (``"H2 / 5. terem"``) exactly as ``get_structure`` returns them; the toolbox
+  (``"B-Telep / 5.Terem"``) exactly as ``get_structure`` returns them; the toolbox
   resolves names to documents internally. The model never sees a Firestore
   ID, so it cannot leak one into a task or the log.
 * **Every call is traced.** ``ToolBox.trace`` records what was *actually*
@@ -64,7 +64,7 @@ class ToolBox:
 
     # ---------------------------------------------------------- resolution
     def _norm(self, s: str) -> str:
-        """'H2 / 5. terem' → 'h25' — tolerant of spacing, dots, slashes and the word 'terem'."""
+        """'B-Telep / 5.Terem' → 'b-telep5' — tolerant of case, spacing, dots, slashes and the word 'terem'."""
         return re.sub(r"terem|[\s\./]+", "", (s or "").lower())
 
     def _room(self, name: str) -> Room:
@@ -73,7 +73,7 @@ class ToolBox:
         for r in rooms:
             if self._norm(r.display_name) == target:
                 return r
-        # tolerate "5. terem" alone if unique
+        # tolerate "5.Terem" alone if unique
         loose = [r for r in rooms if self._norm(r.name) == target]
         if len(loose) == 1:
             return loose[0]
@@ -138,7 +138,7 @@ class ToolBox:
         def get_structure() -> dict:
             """Farm → barns → rooms with current pig counts. Call this first if you
             need to know which rooms exist or how big the farm is. Rooms are always
-            referred to by their display name, e.g. "H2 / 5. terem"."""
+            referred to by their display name, e.g. "B-Telep / 5.Terem"."""
             st = box.snapshot.structure
             barns = []
             for b in st.barns:
@@ -158,7 +158,7 @@ class ToolBox:
             """Current state of one room: pig count, fattening day, estimated weight,
             valve count and faults, deaths and valve changes recorded today, and how
             long ago the last data was written. `room` is the display name, e.g.
-            "H1 / 3. terem"."""
+            "A-Telep / 3.Terem"."""
             r = box._room(room)
             valves = box.snapshot.valves.get(r.id, [])
             deaths = box.snapshot.mortality_today.get(r.id, [])

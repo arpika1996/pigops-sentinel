@@ -150,7 +150,7 @@ class Room:
 
     @property
     def display_name(self) -> str:
-        """`"H2 / 5. terem"` — the only form that may reach a human."""
+        """`"B-Telep / 5.Terem"` — the only form that may reach a human."""
         return f"{self.barn.name} / {self.name}"
 
 

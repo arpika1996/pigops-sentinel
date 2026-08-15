@@ -41,9 +41,15 @@ def _looks_like_sandbox() -> bool:
 
 
 def reset_farm(db: firestore.Client, farm_id: str) -> None:
+    # the valve log lives in a separate root tree keyed by barn id — collect the
+    # barns that exist under the farm NOW (an older seed may have used other ids)
+    # plus the ones this seed uses, so no orphaned naplo/<barn> tree survives
+    barn_ids = {barn_id for barn_id, _ in BARNS}
+    for snap in db.collection(f"{S.farm_path(farm_id)}/{S.COL_HIZLALDAK}").stream():
+        barn_ids.add(snap.id)
     log.info("Deleting telepek/%s (recursive)", farm_id)
     db.recursive_delete(db.document(S.farm_path(farm_id)))
-    for barn_id, _ in BARNS:
+    for barn_id in sorted(barn_ids):
         log.info("Deleting naplo/%s (recursive)", barn_id)
         db.recursive_delete(db.document(f"{S.COL_NAPLO}/{barn_id}"))
     for uid, *_ in USERS:
