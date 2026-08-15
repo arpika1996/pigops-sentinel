@@ -120,6 +120,13 @@ class Settings(BaseSettings):
     max_tasks_per_run: int = Field(default=5, ge=0)
     dedup_window_hours: int = Field(default=48, ge=1)
     escalation_hours: int = Field(default=24, ge=1)
+    decision_cooldown_hours: int = Field(
+        default=6,
+        ge=0,
+        description="A candidate judged NOISE/WATCH on IDENTICAL evidence within this "
+        "window is not investigated again (0 disables). Cost guard for the 15-min "
+        "cadence: the same quiet room must not cost tokens every quarter hour.",
+    )
 
     # ---- Console -----------------------------------------------------------
     console_port: int = Field(default=8081)

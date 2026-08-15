@@ -129,7 +129,7 @@ def test_page_and_state_and_health(client):
     assert "Observed" in page.text and "Reasoned" in page.text and "Acted" in page.text
     st = client.get("/api/state").json()
     assert st["farmName"] == "PigOps" and len(st["entries"]) == 6 and st["stats"]["runsToday"] == 1
-    hz = client.get("/healthz").json()
+    hz = client.get("/health").json()
     assert hz == {"ok": True, "loaded": True, "entries": 6}
 
 

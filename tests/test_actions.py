@@ -286,3 +286,50 @@ def test_partition_handled_expires_with_the_dedup_window(snapshot, cands, cfg, f
     snap2 = replace(snapshot, open_tasks=[old if t.id == c.task.id else t for t in snapshot.open_tasks])
     fresh, handled = partition_handled(scan(snap2, cfg), snap2, cfg)
     assert handled == [] and len(fresh) == 6
+
+
+def test_partition_handled_cools_down_identical_noise_and_watch(snapshot, cands, cfg, frozen_clock):
+    """A NOISE/WATCH verdict on identical evidence is not re-litigated inside the cooldown; new evidence is."""
+    chronic = cands[("MORTALITY_SPIKE", "A-Telep / 3.Terem")]
+    valve = cands[("VALVE_INSTABILITY", "A-Telep / 4.Terem")]
+    now = frozen_clock.now()
+    recent = [
+        {"status": "decided", "decision": "NOISE", "signalType": "MORTALITY_SPIKE", "roomName": chronic.room_name,
+         "observation": chronic.observation, "timestamp": now - timedelta(minutes=20)},
+        {"status": "decided", "decision": "WATCH", "signalType": "VALVE_INSTABILITY", "roomName": valve.room_name,
+         "observation": valve.observation, "timestamp": now - timedelta(hours=cfg.decision_cooldown_hours + 1)},   # too old
+        {"status": "decided", "decision": "ACT", "signalType": "SILENT_ROOM", "roomName": "B-Telep / 6.Terem",
+         "observation": cands[("SILENT_ROOM", "B-Telep / 6.Terem")].observation, "timestamp": now - timedelta(minutes=5)},  # ACT never cools down
+        {"status": "failed", "decision": None, "signalType": "DEADLINE_RISK", "roomName": "x", "observation": "y", "timestamp": now},
+    ]
+    fresh, handled = partition_handled(scan(snapshot, cfg), snapshot, cfg, recent)
+    reasons = {(c.signal_type, c.room_name): why for c, why in handled}
+    assert set(reasons) == {("MORTALITY_SPIKE", "A-Telep / 3.Terem")}
+    assert reasons[("MORTALITY_SPIKE", "A-Telep / 3.Terem")] == "judged NOISE 20 min ago on identical evidence; nothing has changed"
+    assert len(fresh) == 5
+
+    # the evidence changes → the observation text changes → investigated again
+    changed = [{**recent[0], "observation": chronic.observation.replace("4 deaths", "5 deaths")}]
+    fresh, handled = partition_handled(scan(snapshot, cfg), snapshot, cfg, changed)
+    assert handled == [] and len(fresh) == 6
+
+    # cooldown switched off
+    off = Settings(_env_file=None, decision_cooldown_hours=0)
+    fresh, handled = partition_handled(scan(snapshot, off), snapshot, off, recent)
+    assert handled == [] and len(fresh) == 6
+
+
+def test_partition_handled_respects_a_recently_closed_task(actor, repo, snapshot, cands, cfg, frozen_clock):
+    """The actor would refuse to re-open it (dedup window) — so the scanner does not send it to the LLM either."""
+    out = actor.act(_act(cands[("VALVE_INSTABILITY", "A-Telep / 4.Terem")]))
+    repo.close_task(out.task_id, frozen_clock.now() - timedelta(hours=1))
+    snap2 = replace(snapshot, open_tasks=repo.get_open_tasks())
+    fresh, handled = partition_handled(scan(snap2, cfg), snap2, cfg, [], repo.get_sentinel_tasks(include_done=True))
+    reasons = {(c.signal_type, c.room_name): why for c, why in handled}
+    assert set(reasons) == {("VALVE_INSTABILITY", "A-Telep / 4.Terem")}
+    assert reasons[("VALVE_INSTABILITY", "A-Telep / 4.Terem")].startswith("a Sentinel task for it was closed 1 h ago")
+    assert "48 h dedup window" in reasons[("VALVE_INSTABILITY", "A-Telep / 4.Terem")]
+    # outside the window it comes back
+    repo.tasks[out.task_id].created_at = frozen_clock.now() - timedelta(hours=cfg.dedup_window_hours + 1)
+    fresh, handled = partition_handled(scan(snap2, cfg), snap2, cfg, [], repo.get_sentinel_tasks(include_done=True))
+    assert handled == [] and len(fresh) == 6

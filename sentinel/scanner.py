@@ -319,21 +319,47 @@ def scan(snapshot: FarmSnapshot, cfg: Settings | None = None) -> list[Candidate]
     return found
 
 
-def partition_handled(candidates: list[Candidate], snapshot: FarmSnapshot, cfg: Settings | None = None) -> tuple[list[Candidate], list[tuple[Candidate, str]]]:
+def partition_handled(
+    candidates: list[Candidate],
+    snapshot: FarmSnapshot,
+    cfg: Settings | None = None,
+    recent_decisions: list[dict[str, Any]] | None = None,
+    sentinel_tasks: list[Task] | None = None,
+) -> tuple[list[Candidate], list[tuple[Candidate, str]]]:
     """Split candidates into (fresh, already handled) — the idempotency guard (SPEC §8).
 
-    A candidate is *handled* when the Sentinel already acted on exactly it and
-    the action is still live: an open Sentinel task for the same room and
-    signal, or — for DEADLINE_RISK — a notification about that task inside the
-    dedup window. Handled candidates are counted on the run, not investigated
-    again every 15 minutes (that would only spend tokens to re-decide the same
-    thing; the follow-up phase owns what happens to those tasks next).
+    A candidate is *handled* when the Sentinel already dealt with exactly it
+    and that is still live:
+
+    * an open Sentinel task for the same room and signal;
+    * a Sentinel task for the same room and signal CLOSED inside the dedup
+      window (``sentinel_tasks`` — the actor would refuse to re-open it anyway,
+      so investigating would only spend tokens);
+    * for DEADLINE_RISK — a notification about that task inside the dedup window;
+    * a NOISE / WATCH decision on IDENTICAL evidence (same signal, room and
+      observation text) inside ``DECISION_COOLDOWN_HOURS`` — ``recent_decisions``
+      are sentinelLog documents from that window. If the evidence changes (one
+      more death, another day of silence) the observation text changes and the
+      candidate is investigated again.
+
+    Handled candidates are counted on the run, not investigated again every
+    15 minutes: that would only spend tokens to re-decide the same thing (the
+    follow-up phase owns what happens to the Sentinel's tasks next).
     """
     cfg = cfg or default_settings
     now = snapshot.now
     assert now is not None
     window = timedelta(hours=cfg.dedup_window_hours)
+    cooldown = timedelta(hours=cfg.decision_cooldown_hours)
     open_sentinel = [t for t in snapshot.open_tasks if t.is_sentinel_task and not t.done]
+    closed_recent = [t for t in (sentinel_tasks or []) if t.done and t.created_at is not None and now - t.created_at < window]
+    quiet: dict[tuple[str, str, str], tuple[str, datetime]] = {}
+    for e in recent_decisions or []:
+        ts = e.get("timestamp")
+        if e.get("decision") in ("NOISE", "WATCH") and e.get("status") == "decided" and isinstance(ts, datetime):
+            key = (e.get("signalType") or "", e.get("roomName") or "", e.get("observation") or "")
+            if now - ts < cooldown and (key not in quiet or ts > quiet[key][1]):
+                quiet[key] = (e["decision"], ts)
     fresh: list[Candidate] = []
     handled: list[tuple[Candidate, str]] = []
     for c in candidates:
@@ -348,6 +374,19 @@ def partition_handled(candidates: list[Candidate], snapshot: FarmSnapshot, cfg: 
             if match is not None:
                 handled.append((c, f"an open Sentinel task already covers it: '{match.title}'"))
                 continue
+            closed = next((t for t in closed_recent if t.signal_type == c.signal_type and t.terem_id == c.room.id), None)
+            if closed is not None:
+                when = closed.completed_at or closed.created_at
+                hours = (now - when).total_seconds() / 3600 if when else 0.0
+                handled.append((c, f"a Sentinel task for it was closed {_fmt_hours(max(hours, 0.0))} ago ('{closed.title}'); "
+                                   f"not re-opened inside the {cfg.dedup_window_hours} h dedup window"))
+                continue
+        prior = quiet.get((c.signal_type, c.room_name, c.observation))
+        if prior is not None:
+            decision, ts = prior
+            hours = (now - ts).total_seconds() / 3600
+            handled.append((c, f"judged {decision} {_fmt_hours(hours)} ago on identical evidence; nothing has changed"))
+            continue
         fresh.append(c)
     return fresh, handled
 

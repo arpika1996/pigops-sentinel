@@ -269,14 +269,26 @@ def test_second_run_skips_what_the_first_one_handled(repo, cfg, snapshot):
 
     second, statuses = _run(repo, cfg, live_loader, investigator_factory=factory())
     assert second.status == RUN_OK
-    handled = {(c.signal_type, c.room_name) for c, _ in second.handled}
-    # 2 spikes now have open Sentinel tasks, 2 deadlines were notified about → 4 handled
-    assert len(handled) == 4 and {s for s, _ in handled} == {"MORTALITY_SPIKE", "DEADLINE_RISK"}
-    # what is left is what still needs judgement: the valve (WATCH) and the silent room (NOISE with this fake)
-    assert {(c.signal_type, c.room_name) for c in second.candidates} == {
-        ("VALVE_INSTABILITY", "A-Telep / 4.Terem"), ("SILENT_ROOM", "B-Telep / 6.Terem")}
+    reasons = {(c.signal_type, c.room_name): why for c, why in second.handled}
+    # 2 spikes now have open Sentinel tasks, 2 deadlines were notified about, and the valve (WATCH) and the
+    # silent room (NOISE with this fake) were judged minutes ago on identical evidence → all 6 handled
+    assert len(reasons) == 6 and second.candidates == []
+    assert "open Sentinel task" in reasons[("MORTALITY_SPIKE", "B-Telep / 5.Terem")]
+    assert "already notified" in reasons[("DEADLINE_RISK", "A-Telep / 2.Terem")]
+    assert reasons[("VALVE_INSTABILITY", "A-Telep / 4.Terem")].startswith("judged WATCH") and "identical evidence" in reasons[("VALVE_INSTABILITY", "A-Telep / 4.Terem")]
+    assert reasons[("SILENT_ROOM", "B-Telep / 6.Terem")].startswith("judged NOISE")
     assert second.tasks_created == 0 and len(repo.get_sentinel_tasks()) == tasks_after_first   # nothing was doubled
-    assert FakeInvestigator.created[1].seen == [c.key for c in second.candidates]   # handled ones never reached the LLM
+    assert len(FakeInvestigator.created) == 1                                        # the LLM was not even built
     doc = repo.runs[second.run_id]
-    assert doc["handled"] == 4 and doc["candidates"] == 2
-    assert any(p == "scanning" and "4 already handled" in d for p, d in statuses)
+    assert doc["handled"] == 6 and doc["candidates"] == 0
+    assert any(p == "scanning" and "6 already handled" in d for p, d in statuses)
+
+    # the evidence changes (one more death in the silent room's neighbour → different observation) → fresh again
+    later_loader = lambda r, c: replace(snapshot, open_tasks=r.get_open_tasks(),
+                                        valve_changes_today={**snapshot.valve_changes_today})
+    third, _ = _run(repo, cfg, later_loader, investigator_factory=factory())
+    assert third.candidates == []                                                    # same evidence → still quiet
+    cfg_no_cooldown = Settings(_env_file=None, decision_cooldown_hours=0)
+    fourth, _ = _run(repo, cfg_no_cooldown, live_loader, investigator_factory=factory())
+    assert {(c.signal_type, c.room_name) for c in fourth.candidates} == {
+        ("VALVE_INSTABILITY", "A-Telep / 4.Terem"), ("SILENT_ROOM", "B-Telep / 6.Terem")}   # cooldown off → judged again

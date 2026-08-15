@@ -7,7 +7,7 @@ Routes
 GET /            the page (static/index.html, everything inline)
 GET /api/state   the full picture: header stats, latest run, last entries
 GET /events      Server-Sent Events: `state` once, then `log` / `run` / `stats`
-GET /healthz     liveness for Cloud Run
+GET /health     liveness for Cloud Run
 
 The app never writes: it holds a :class:`~sentinel.console.feed.ConsoleFeed`
 that only calls the repository's ``get_*`` methods (and, on Cloud Run, runs
@@ -99,7 +99,7 @@ def create_app(repo: Any = None, cfg: Settings | None = None, *, feed: ConsoleFe
     async def state() -> JSONResponse:
         return JSONResponse(feed.state())
 
-    @app.get("/healthz")
+    @app.get("/health")
     async def healthz() -> JSONResponse:
         return JSONResponse({"ok": True, "loaded": feed.loaded, "entries": len(feed.entries)})
 

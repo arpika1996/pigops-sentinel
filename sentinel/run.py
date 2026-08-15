@@ -185,7 +185,8 @@ class SentinelRun:
         try:
             snapshot = self.load(self.repo, self.cfg)
             rep.farm_name = snapshot.structure.farm.name
-            rep.candidates, rep.handled = partition_handled(scan(snapshot, self.cfg), snapshot, self.cfg)
+            recent = self._recent_decisions(snapshot.now)
+            rep.candidates, rep.handled = partition_handled(scan(snapshot, self.cfg), snapshot, self.cfg, recent, self._sentinel_tasks())
         except Exception as exc:  # noqa: BLE001 — must end in the log, never vanish
             return self._fail(PHASE_SCANNING, exc)
         self._upsert(farmName=rep.farm_name, candidates=len(rep.candidates), handled=len(rep.handled))
@@ -265,6 +266,24 @@ class SentinelRun:
                 age = int((now - started).total_seconds() // 60)
                 return f"a run started {age} min ago is still in progress"
         return None
+
+    def _recent_decisions(self, now: datetime | None) -> list[dict[str, Any]]:
+        """sentinelLog entries inside the decision cooldown (a cheap, bounded read)."""
+        if now is None or self.cfg.decision_cooldown_hours <= 0:
+            return []
+        try:
+            return self.repo.get_logs_since(now - timedelta(hours=self.cfg.decision_cooldown_hours), limit=500)
+        except Exception as exc:  # noqa: BLE001 — the guard is an optimisation, never a blocker
+            log.warning("could not read recent decisions for the cooldown guard: %s", exc)
+            return []
+
+    def _sentinel_tasks(self) -> list[Any]:
+        """All of the Sentinel's own tasks (open and closed) — for the closed-recently guard; a bounded read."""
+        try:
+            return self.repo.get_sentinel_tasks(include_done=True)
+        except Exception as exc:  # noqa: BLE001 — optimisation only
+            log.warning("could not list the Sentinel's tasks for the guard: %s", exc)
+            return []
 
     def _log_result(self, result: InvestigationResult, outcome: ActionOutcome | None = None) -> None:
         rep = self.report
