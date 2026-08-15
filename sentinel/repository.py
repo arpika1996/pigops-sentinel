@@ -338,6 +338,8 @@ class PigOpsRepository:
             signal_type=d.get("signalType"),
             sentinel_run_id=d.get("sentinelRunId"),
             escalated_at=_dt(d.get("escalatedAt")),
+            sentinel_notified_at=_dt(d.get("sentinelNotifiedAt")),
+            sentinel_notify_count=_int(d.get("sentinelNotifyCount"), 0),
         )
 
     def get_open_tasks(self, terem_id: str | None = None) -> list[Task]:
@@ -404,6 +406,11 @@ class PigOpsRepository:
 
     def update_task(self, task_id: str, **fields: Any) -> None:
         self.farm_ref.collection(S.COL_FELADATOK).document(task_id).update(fields)
+
+    def mark_task_notified(self, task_id: str, at: datetime) -> None:
+        """Stamp a task the Sentinel just notified about (extra fields, ignored by the app):
+        the scanner and the actor use it to not nag about the same task every run."""
+        self.update_task(task_id, sentinelNotifiedAt=at, sentinelNotifyCount=firestore.Increment(1))
 
     def find_recent_sentinel_task(self, terem_id: str, signal_type: str, within_hours: int) -> Task | None:
         """Dedup lookup: an open Sentinel task for the same room+signal, or any

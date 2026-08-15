@@ -216,6 +216,8 @@ class Task:
     signal_type: str | None = None
     sentinel_run_id: str | None = None
     escalated_at: datetime | None = None
+    sentinel_notified_at: datetime | None = None  # last DEADLINE_RISK notification the Sentinel sent about it
+    sentinel_notify_count: int = 0
     work_log_count: int | None = None  # filled lazily by the repository
 
     @property

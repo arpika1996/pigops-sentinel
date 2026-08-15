@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import timedelta, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -98,6 +98,8 @@ def load_snapshot(repo: PigOpsRepository, cfg: Settings | None = None) -> FarmSn
 # Rules
 # --------------------------------------------------------------------------
 def _fmt_hours(h: float) -> str:
+    if h < 1:
+        return f"{h * 60:.0f} min"
     if h < 48:
         return f"{h:.0f} h"
     return f"{h / 24:.1f} days"
@@ -315,6 +317,39 @@ def scan(snapshot: FarmSnapshot, cfg: Settings | None = None) -> list[Candidate]
         found.extend(rule(snapshot, cfg))
     found.sort(key=lambda c: (c.signal_type, c.room_name, c.key))
     return found
+
+
+def partition_handled(candidates: list[Candidate], snapshot: FarmSnapshot, cfg: Settings | None = None) -> tuple[list[Candidate], list[tuple[Candidate, str]]]:
+    """Split candidates into (fresh, already handled) — the idempotency guard (SPEC §8).
+
+    A candidate is *handled* when the Sentinel already acted on exactly it and
+    the action is still live: an open Sentinel task for the same room and
+    signal, or — for DEADLINE_RISK — a notification about that task inside the
+    dedup window. Handled candidates are counted on the run, not investigated
+    again every 15 minutes (that would only spend tokens to re-decide the same
+    thing; the follow-up phase owns what happens to those tasks next).
+    """
+    cfg = cfg or default_settings
+    now = snapshot.now
+    assert now is not None
+    window = timedelta(hours=cfg.dedup_window_hours)
+    open_sentinel = [t for t in snapshot.open_tasks if t.is_sentinel_task and not t.done]
+    fresh: list[Candidate] = []
+    handled: list[tuple[Candidate, str]] = []
+    for c in candidates:
+        if c.signal_type == "DEADLINE_RISK":
+            t = c.task
+            if t is not None and t.sentinel_notified_at is not None and now - t.sentinel_notified_at < window:
+                hours = (now - t.sentinel_notified_at).total_seconds() / 3600
+                handled.append((c, f"already notified about this task {_fmt_hours(hours)} ago"))
+                continue
+        elif c.room is not None:
+            match = next((t for t in open_sentinel if t.signal_type == c.signal_type and t.terem_id == c.room.id), None)
+            if match is not None:
+                handled.append((c, f"an open Sentinel task already covers it: '{match.title}'"))
+                continue
+        fresh.append(c)
+    return fresh, handled
 
 
 def run_scan(repo: PigOpsRepository, cfg: Settings | None = None) -> tuple[FarmSnapshot, list[Candidate]]:

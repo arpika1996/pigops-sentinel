@@ -35,8 +35,12 @@ def action_kind(signal_type: str) -> str:
     return "notification" if signal_type in NOTIFY_SIGNALS else "task"
 
 
-def build_log_entry(result: InvestigationResult, run_id: str, farm_name: str, at: datetime) -> dict[str, Any]:
-    """The sentinelLog document for one investigated candidate (decided or failed)."""
+def build_log_entry(result: InvestigationResult, run_id: str, farm_name: str, at: datetime, action: Any = None) -> dict[str, Any]:
+    """The sentinelLog document for one investigated candidate (decided or failed).
+
+    ``action`` is the Phase-4 :class:`~sentinel.actions.ActionOutcome` (or None
+    when nothing was done); it becomes ``actionTaken``.
+    """
     c = result.candidate
     d = result.decision
     entry: dict[str, Any] = {
@@ -51,7 +55,7 @@ def build_log_entry(result: InvestigationResult, run_id: str, farm_name: str, at
         "reasoning": d.reasoning if d else "",
         "decision": d.decision if d else None,
         "severity": d.severity if d else None,
-        "actionTaken": None,      # filled by Phase 4 (action tools)
+        "actionTaken": action.as_log() if action is not None else None,
         "escalation": None,       # filled by Phase 5 (follow-up)
         "latencyMs": result.latency_ms,
         # ---- extras (console + later phases) ------------------------------

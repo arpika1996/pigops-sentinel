@@ -75,6 +75,7 @@ def snapshot_from_plan(plan: SeedPlan, clock: Clock, farm_id: str = "demo-farm")
                 hizlalda_nev=d.get("hizlaldaNev"), terem_id=d.get("teremId"), terem_nev=d.get("teremNev"),
                 completed_at=d.get("completedAt"), category=d.get("category"), source=d.get("source"),
                 severity=d.get("severity"), signal_type=d.get("signalType"), sentinel_run_id=d.get("sentinelRunId"),
+                sentinel_notified_at=d.get("sentinelNotifiedAt"), sentinel_notify_count=d.get("sentinelNotifyCount", 0),
             )
         elif len(segs) == 6 and segs[4] == S.COL_MUNKAK:
             worklog[segs[3]] += 1
@@ -130,6 +131,33 @@ class FakeRepository:
         self.mortality.sort(key=lambda e: e.datum)
         self.changes.sort(key=lambda c: c.datum)
         self.calls: list[tuple] = []
+        # tasks / people, the same way the snapshot builder sees them
+        snap = snapshot_from_plan(plan, clock, farm_id)
+        self.structure = snap.structure
+        self.tasks: dict[str, Task] = {}
+        self.users: dict[str, User] = {}
+        self.perms: dict[str, tuple[str, object]] = {}   # uid -> (role, createdAt)
+        for w in plan.writes:
+            segs = _segs(w.path)
+            d = w.data
+            if len(segs) == 4 and segs[2] == S.COL_FELADATOK:
+                self.tasks[segs[3]] = Task(
+                    id=segs[3], telep_id=farm_id, title=d["title"], description=d.get("description", ""), done=d["done"],
+                    status=d.get("status"), deadline=d.get("deadline"), assignee_email=d.get("assigneeEmail"),
+                    created_at=d.get("createdAt"), created_by=d.get("createdBy"), hizlalda_id=d.get("hizlaldaId"),
+                    hizlalda_nev=d.get("hizlaldaNev"), terem_id=d.get("teremId"), terem_nev=d.get("teremNev"),
+                    completed_at=d.get("completedAt"), category=d.get("category"), source=d.get("source"),
+                    severity=d.get("severity"), signal_type=d.get("signalType"), sentinel_run_id=d.get("sentinelRunId"),
+                    sentinel_notified_at=d.get("sentinelNotifiedAt"), sentinel_notify_count=d.get("sentinelNotifyCount", 0),
+                )
+            elif segs[0] == S.COL_USERS and len(segs) == 2:
+                self.users[segs[1]] = User(uid=segs[1], email=d.get("email"), display_name=d.get("displayName"),
+                                           role=d.get("role"), fcm_token=d.get("fcmToken"))
+            elif len(segs) == 4 and segs[2] == S.COL_JOGOSULTSAGOK:
+                self.perms[segs[3]] = (d.get("role", S.ROLE_USER), d.get("createdAt"))
+        for t in self.tasks.values():          # the real repository fills this lazily; the scanner relies on it
+            t.work_log_count = self.worklog.get(t.id, 0)
+        self._task_seq = 0
 
     def get_mortality_events(self, since, until=None, terem_id=None):
         self.calls.append(("get_mortality_events", since, until, terem_id))
@@ -182,3 +210,86 @@ class FakeRepository:
         runs = getattr(self, "runs", {})
         docs = [{"id": rid, **d} for rid, d in runs.items()]
         return sorted(docs, key=lambda d: d.get("startedAt") or self.clock.now(), reverse=True)[:limit]
+
+
+    # ---------------------------------------------------------------- tasks
+    # (mirrors PigOpsRepository.get_open_tasks / get_sentinel_tasks / create_task /
+    #  update_task / mark_task_notified / find_recent_sentinel_task)
+    def get_open_tasks(self, terem_id: str | None = None) -> list[Task]:
+        return [t for t in self.tasks.values() if not t.done and (terem_id is None or t.terem_id == terem_id)]
+
+    def get_sentinel_tasks(self, include_done: bool = True) -> list[Task]:
+        return [t for t in self.tasks.values() if t.is_sentinel_task and (include_done or not t.done)]
+
+    def create_task(self, *, room, title, description, assignee_email, severity, signal_type, run_id, deadline, signal_key) -> Task:
+        self._task_seq += 1
+        tid = f"sentinel-task-{self._task_seq}"
+        t = Task(
+            id=tid, telep_id=self.telep_id, title=title, description=description, done=False, status=S.TASK_STATUS_OPEN,
+            deadline=deadline, assignee_email=assignee_email, created_at=self.clock.now(), created_by="PigOps Sentinel",
+            hizlalda_id=room.barn.id, hizlalda_nev=room.barn.name, terem_id=room.id, terem_nev=room.name,
+            category="Sentinel", source=S.TASK_SOURCE_SENTINEL, severity=severity, signal_type=signal_type,
+            sentinel_run_id=run_id,
+        )
+        self.tasks[tid] = t
+        self.calls.append(("create_task", tid, signal_key))
+        return t
+
+    def update_task(self, task_id: str, **fields) -> None:
+        self.calls.append(("update_task", task_id, dict(fields)))
+        t = self.tasks[task_id]
+        mapping = {"sentinelNotifiedAt": "sentinel_notified_at", "sentinelNotifyCount": "sentinel_notify_count",
+                   "severity": "severity", "escalatedAt": "escalated_at", "done": "done", "deadline": "deadline"}
+        for k, v in fields.items():
+            if k in mapping:
+                setattr(t, mapping[k], v)
+
+    def mark_task_notified(self, task_id: str, at) -> None:
+        t = self.tasks[task_id]
+        self.update_task(task_id, sentinelNotifiedAt=at, sentinelNotifyCount=t.sentinel_notify_count + 1)
+
+    def find_recent_sentinel_task(self, terem_id: str, signal_type: str, within_hours: int) -> Task | None:
+        from datetime import timedelta
+        cutoff = self.clock.now() - timedelta(hours=within_hours)
+        for t in self.get_sentinel_tasks(include_done=True):
+            if t.terem_id == terem_id and t.signal_type == signal_type:
+                if not t.done or (t.created_at and t.created_at >= cutoff):
+                    return t
+        return None
+
+    # --------------------------------------------------------------- people
+    def get_user(self, uid: str) -> User | None:
+        return self.users.get(uid)
+
+    def get_farm_manager(self) -> tuple[User | None, str | None]:
+        self.calls.append(("get_farm_manager",))
+        ordered = sorted(self.perms.items(), key=lambda kv: (kv[1][1] is None, kv[1][1] or self.clock.now()))
+        for role in (S.ROLE_ADMIN, S.ROLE_SUPERADMIN):
+            for uid, (r, _) in ordered:
+                if r == role and uid in self.users:
+                    return self.users[uid], (None if role == S.ROLE_ADMIN else "no farm admin found; assigned to a superadmin")
+        for uid, _ in ordered:
+            u = self.users.get(uid)
+            if u and u.role in S.FARM_MANAGER_ROLES:
+                return u, "no farm-level admin; fell back to a global admin who has access to the farm"
+        return None, "no responsible person found on the farm — task left unassigned"
+
+
+# --------------------------------------------------------------------------
+# A notification transport that records instead of sending
+# --------------------------------------------------------------------------
+class FakeNotifier:
+    """Same contract as sentinel.actions.FcmNotifier.send: (status, reason), never raises."""
+
+    def __init__(self, fail_for: tuple[str, ...] = ()) -> None:
+        self.sent: list[tuple[str, str, str, dict]] = []   # (uid, title, body, data)
+        self.fail_for = set(fail_for)
+
+    def send(self, user: User, title: str, body: str, data: dict) -> tuple[str, str | None]:
+        name = user.display_name or user.uid
+        if not user.fcm_token:
+            return "skipped", f"no device token registered for {name}"
+        if user.uid in self.fail_for:
+            return "failed", "FirebaseError: registration token is not valid"
+        self.sent.append((user.uid, title, body, dict(data)))
+        return "sent", None
