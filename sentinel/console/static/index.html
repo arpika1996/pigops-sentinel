@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PigOps Sentinel — Console</title>
+<style>
+  :root {
+    --bg: #0e1319; --panel: #161d26; --panel-2: #1c2530; --line: #263140;
+    --text: #e7edf3; --muted: #8b98a8; --dim: #5d6b7c;
+    --noise: #6b7280; --watch: #f5a524; --act: #ef4444; --esc: #a855f7; --outcome: #22c55e; --failed: #b91c1c;
+    --live: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: inherit; }
+  header { position: sticky; top: 0; z-index: 5; background: linear-gradient(180deg, #121922 0%, #0e1319 100%); border-bottom: 1px solid var(--line); padding: 14px 22px 12px; }
+  .row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .brand { font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+  .brand small { display: block; font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: .3px; text-transform: uppercase; }
+  .live { margin-left: auto; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-size: 13.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; max-width: 60vw; }
+  .live .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; }
+  .live.running { color: var(--text); border-color: #2c3f55; }
+  .live.running .dot { background: var(--live); animation: pulse 1.1s ease-in-out infinite; }
+  .live.failed .dot { background: var(--act); }
+  .live .target { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1 } 50% { transform: scale(1.5); opacity: .55 } }
+  .stats { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; min-width: 118px; }
+  .stat b { display: block; font-size: 20px; font-weight: 700; line-height: 1.1; }
+  .stat span { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .stat .split b { display: inline; }
+  .stat .split .n { color: var(--noise) } .stat .split .w { color: var(--watch) } .stat .split .a { color: var(--act) }
+  main { max-width: 1040px; margin: 0 auto; padding: 18px 16px 60px; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 0; }
+  .card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; overflow: hidden; display: grid; grid-template-columns: 6px 1fr; }
+  .card.new { animation: arrive .9s ease-out; }
+  @keyframes arrive { 0% { transform: translateY(-8px); opacity: 0; box-shadow: 0 0 0 0 rgba(255,255,255,.25) } 100% { transform: none; opacity: 1 } }
+  .stripe { background: var(--noise); }
+  .card.kind-noise .stripe { background: var(--noise); }
+  .card.kind-watch .stripe { background: var(--watch); }
+  .card.kind-act .stripe { background: var(--act); }
+  .card.kind-escalation .stripe { background: repeating-linear-gradient(135deg, var(--esc) 0 8px, #6d28d9 8px 16px); }
+  .card.kind-escalation { border-color: #4c2a7a; box-shadow: 0 0 0 1px rgba(168,85,247,.25) inset; }
+  .card.kind-outcome .stripe { background: var(--outcome); }
+  .card.kind-failed .stripe { background: repeating-linear-gradient(135deg, var(--failed) 0 6px, transparent 6px 12px); }
+  .card.kind-noise { opacity: .82; }
+  .body { padding: 12px 16px 12px 14px; min-width: 0; }
+  .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .room { font-weight: 700; font-size: 16px; }
+  .signal { font-size: 11.5px; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; }
+  .time { color: var(--muted); font-size: 13px; }
+  .badge { margin-left: auto; font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; color: #0b0f14; }
+  .badge.noise { background: var(--noise); color: #eef; } .badge.watch { background: var(--watch); } .badge.act { background: var(--act); color: #fff; }
+  .badge.escalation { background: var(--esc); color: #fff; } .badge.outcome { background: var(--outcome); } .badge.failed { background: var(--failed); color: #fff; }
+  .band { padding: 6px 0; border-top: 1px dashed var(--line); }
+  .band h4 { margin: 0 0 2px; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .band p { margin: 0; }
+  details.band summary { cursor: pointer; list-style: none; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  details.band summary::-webkit-details-marker { display: none; }
+  details.band summary::before { content: "▸ "; color: var(--dim); }
+  details.band[open] summary::before { content: "▾ "; }
+  details.band summary .meta { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--dim); margin-left: 6px; }
+  .reasoning { margin: 8px 0 6px !important; padding: 8px 10px; background: var(--panel-2); border-radius: 8px; }
+  ul.ctx { list-style: none; margin: 4px 0 0; padding: 0; }
+  ul.ctx li { padding: 5px 0 5px 10px; border-left: 2px solid var(--line); margin: 4px 0; font-size: 13.5px; }
+  ul.ctx code { color: #9ecbff; font-size: 12.5px; }
+  ul.ctx .sum { color: var(--text); }
+  ul.ctx .why { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  ul.ctx .bad { color: var(--watch); }
+  .acted .what { font-weight: 600; }
+  .acted .sub { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+  .muted { color: var(--muted); }
+  footer { text-align: center; color: var(--dim); font-size: 12px; padding: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <div class="brand">PigOps Sentinel<small><span id="farm">…</span> · autonomous farm watch</small></div>
+    <div class="live" id="live"><span class="dot"></span><span class="target">connecting…</span></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="lastRun">—</b><span>last run</span></div>
+    <div class="stat"><b id="runsToday">0</b><span>runs today</span></div>
+    <div class="stat"><b id="tasksToday">0</b><span>tasks created today</span></div>
+    <div class="stat"><b id="escToday">0</b><span>escalations today</span></div>
+    <div class="stat"><div class="split"><b class="n" id="dN">0</b> <b class="muted">/</b> <b class="w" id="dW">0</b> <b class="muted">/</b> <b class="a" id="dA">0</b></div><span>noise / watch / act today</span></div>
+    <div class="stat"><b id="handledToday">0</b><span>already handled today</span></div>
+  </div>
+</header>
+<main id="feed"><div class="empty">Waiting for the first decision…</div></main>
+<footer>Read-only. Every card is one autonomous decision of the Sentinel — including the ones where it decided a room is fine.</footer>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  let TZ = 'Europe/Budapest';
+  const feed = $('feed');
+  const seen = new Set();
+
+  const fmtTime = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const now = new Date();
+    const opts = { timeZone: TZ, hour: '2-digit', minute: '2-digit' };
+    const sameDay = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+    if (sameDay.format(d) !== sameDay.format(now)) opts.month = 'short', opts.day = 'numeric';
+    return new Intl.DateTimeFormat('en-GB', opts).format(d);
+  };
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const label = (s) => String(s || '').replace(/_/g, ' ');
+
+  // ------------------------------------------------------------ header
+  function renderStats(s) {
+    if (!s) return;
+    $('lastRun').textContent = fmtTime(s.lastRunAt);
+    $('runsToday').textContent = s.runsToday;
+    $('tasksToday').textContent = s.tasksCreatedToday;
+    $('escToday').textContent = s.escalationsToday;
+    $('dN').textContent = s.decisionsToday.NOISE; $('dW').textContent = s.decisionsToday.WATCH; $('dA').textContent = s.decisionsToday.ACT;
+    $('handledToday').textContent = s.handledToday;
+  }
+  function renderRun(r) {
+    const el = $('live'); const t = el.querySelector('.target');
+    el.className = 'live';
+    if (!r) { t.textContent = 'no run yet'; return; }
+    if (r.status === 'running') {
+      el.classList.add('running');
+      const phase = r.phase || 'running';
+      t.textContent = phase === 'investigating' && r.currentTarget ? `investigating ${r.currentTarget}`
+        : phase === 'acting' ? `acting on ${r.currentTarget || 'a decision'}`
+        : phase === 'following_up' ? 'following up on its own tasks'
+        : phase === 'scanning' ? 'scanning the farm…' : phase;
+    } else {
+      if (r.status === 'failed') el.classList.add('failed');
+      const bits = [];
+      if (r.status === 'skipped') bits.push('skipped — ' + (r.skipReason || 'another run in progress'));
+      else bits.push(`${r.status}`, `${r.decided ?? 0} decided`, `${r.tasksCreated ?? 0} task${(r.tasksCreated ?? 0) === 1 ? '' : 's'}`);
+      if (r.escalated) bits.push(`${r.escalated} escalated`);
+      t.textContent = `idle · last run ${fmtTime(r.finishedAt || r.startedAt)} · ${bits.join(' · ')}`;
+    }
+  }
+
+  // ------------------------------------------------------------- cards
+  function actedText(e) {
+    const a = e.actionTaken;
+    if (e.kind === 'failed') return { what: 'Investigation failed', sub: e.error || '' };
+    if (e.kind === 'outcome') {
+      const o = e.outcome || {};
+      return { what: 'Outcome recorded — task closed', sub: `open ${o.openHours ?? '?'} h · ${o.deathsSince ?? 0} deaths meanwhile · ${o.escalations || 0} escalation${o.escalations === 1 ? '' : 's'}` };
+    }
+    if (e.kind === 'escalation') {
+      const es = e.escalation || {}; const n = (a && a.notifications) || [];
+      const who = n.map(x => `${x.to}: ${x.status}${x.reason ? ' (' + x.reason + ')' : ''}`).join('; ');
+      return { what: `Escalated ${es.fromSeverity} → ${es.toSeverity}`, sub: who ? `notify ${who}` : (a && a.reason) || '' };
+    }
+    if (e.kind === 'noise') return { what: 'No action needed', sub: '' };
+    if (e.kind === 'watch') return { what: 'Watching', sub: e.watchReason ? `re-check when: ${e.watchReason}` : '' };
+    // ACT
+    if (!a) {
+      const p = e.proposedAction;
+      return { what: p ? `Proposed ${p.kind}: “${p.title}”` : 'ACT', sub: p && p.body ? p.body : '' };
+    }
+    const notes = (a.notifications || []).map(x => `${x.to}: ${x.status}${x.reason ? ' (' + x.reason + ')' : ''}`);
+    if (a.type === 'task') {
+      if (a.status === 'done') return { what: `Task created${a.assigneeName ? ' for ' + a.assigneeName : ''}: “${a.taskTitle}”`,
+        sub: [a.deadline ? `due ${fmtTime(a.deadline)}` : null, a.assigneeNote, notes.length ? 'notify ' + notes.join('; ') : null].filter(Boolean).join(' · ') };
+      if (a.status === 'deduplicated') return { what: 'No new task — already covered', sub: a.reason || '' };
+      if (a.status === 'capped') return { what: 'No new task — per-run cap reached', sub: a.reason || '' };
+      return { what: `Task ${a.status}`, sub: a.reason || '' };
+    }
+    if (a.type === 'notification') {
+      if (a.status === 'done') return { what: `Notified about “${a.taskTitle}”`, sub: notes.join('; ') };
+      if (a.status === 'deduplicated') return { what: 'No repeat notification', sub: a.reason || '' };
+      return { what: `Notification ${a.status}`, sub: [a.reason, notes.length ? 'to ' + notes.join('; ') : null].filter(Boolean).join(' · ') };
+    }
+    return { what: `${a.type} ${a.status}`, sub: a.reason || '' };
+  }
+
+  function card(e) {
+    const el = document.createElement('article');
+    el.className = `card kind-${e.kind}`; el.dataset.id = e.id;
+    const badge = e.kind === 'act' ? `ACT${e.severity ? ' · ' + e.severity : ''}` : e.kind === 'escalation' ? `ESCALATED · ${e.severity || ''}` : e.kind === 'outcome' ? 'CLOSED' : e.kind === 'failed' ? 'FAILED' : e.kind.toUpperCase();
+    const ctx = (e.contextGathered || []);
+    const meta = ctx.length || e.llmCalls ? ` <span class="meta">— ${ctx.length} look-up${ctx.length === 1 ? '' : 's'}${e.llmCalls ? ` · ${e.llmCalls} LLM call${e.llmCalls === 1 ? '' : 's'}` : ''}${e.latencyMs ? ` · ${(e.latencyMs / 1000).toFixed(0)} s` : ''}</span>` : '';
+    const ctxHtml = ctx.map(c => {
+      const args = c.args && Object.keys(c.args).length ? Object.entries(c.args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ') : '';
+      const bad = c.ok === false ? ' bad' : '';
+      const flag = c.verified === false ? ' <span class="bad">— claimed by the model, not in the trace</span>' : (c.error ? ` <span class="bad">— ${esc(c.error)}</span>` : '');
+      const why = c.why || c.finding ? `<div class="why">${c.why ? esc(c.why) : ''}${c.why && c.finding ? ' → ' : ''}${c.finding ? esc(c.finding) : ''}</div>` : '';
+      return `<li class="${bad}"><code>${esc(c.tool)}(${esc(args)})</code> <span class="sum">${esc(c.summary || '')}</span>${flag}${why}</li>`;
+    }).join('');
+    const reasoning = e.reasoning ? `<p class="reasoning">${esc(e.reasoning)}</p>` : '';
+    const acted = actedText(e);
+    el.innerHTML = `
+      <div class="stripe"></div>
+      <div class="body">
+        <div class="top">
+          <span class="room">${esc(e.roomName || e.farmName || '')}</span>
+          <span class="signal">${esc(label(e.signalType))}</span>
+          <span class="time" title="${esc(e.timestamp)}">${fmtTime(e.timestamp)}</span>
+          <span class="badge ${e.kind}">${esc(badge)}</span>
+        </div>
+        <section class="band observed"><h4>Observed</h4><p>${esc(e.observation)}</p></section>
+        ${reasoning || ctxHtml ? `<details class="band reasoned"><summary>Reasoned${meta}</summary>${reasoning}${ctxHtml ? `<ul class="ctx">${ctxHtml}</ul>` : ''}</details>` : ''}
+        <section class="band acted"><h4>Acted</h4><p class="what">${esc(acted.what)}</p>${acted.sub ? `<p class="sub">${esc(acted.sub)}</p>` : ''}</section>
+      </div>`;
+    return el;
+  }
+
+  function addEntry(e, { fresh = false, append = false } = {}) {
+    if (seen.has(e.id)) return;
+    seen.add(e.id);
+    const empty = feed.querySelector('.empty'); if (empty) empty.remove();
+    const el = card(e); if (fresh) el.classList.add('new');
+    append ? feed.appendChild(el) : feed.prepend(el);
+    while (feed.children.length > 300) feed.lastChild.remove();
+  }
+
+  function renderState(s) {
+    TZ = s.timezone || TZ;
+    $('farm').textContent = s.farmName || 'demo farm';
+    feed.innerHTML = ''; seen.clear();
+    if (!s.entries.length) feed.innerHTML = '<div class="empty">Waiting for the first decision…</div>';
+    for (const e of s.entries) addEntry(e, { append: true });     // already newest first
+    renderRun(s.run); renderStats(s.stats);
+  }
+
+  // --------------------------------------------------------------- SSE
+  function connect() {
+    const es = new EventSource('/events');
+    es.addEventListener('state', (ev) => renderState(JSON.parse(ev.data)));
+    es.addEventListener('log', (ev) => addEntry(JSON.parse(ev.data).entry, { fresh: true }));
+    es.addEventListener('run', (ev) => renderRun(JSON.parse(ev.data).run));
+    es.addEventListener('stats', (ev) => renderStats(JSON.parse(ev.data).stats));
+    es.onerror = () => { const el = $('live'); el.className = 'live'; el.querySelector('.target').textContent = 'reconnecting…'; };
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

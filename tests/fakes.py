@@ -213,6 +213,17 @@ class FakeRepository:
         docs = [{"id": rid, **d} for rid, d in runs.items()]
         return sorted(docs, key=lambda d: d.get("startedAt") or self.clock.now(), reverse=True)[:limit]
 
+    def get_logs_since(self, since, limit: int = 200) -> list[dict]:
+        logs = [e for e in getattr(self, "logs", []) if e["timestamp"] >= since]
+        return sorted(logs, key=lambda e: e["timestamp"])[:limit]
+
+    def get_runs_since(self, since, limit: int = 500) -> list[dict]:
+        return [r for r in self.get_recent_runs(limit) if r.get("startedAt") and r["startedAt"] >= since]
+
+    def get_latest_run(self) -> dict | None:
+        runs = self.get_recent_runs(1)
+        return runs[0] if runs else None
+
 
     # ---------------------------------------------------------------- tasks
     # (mirrors PigOpsRepository.get_open_tasks / get_sentinel_tasks / create_task /

@@ -499,6 +499,23 @@ class PigOpsRepository:
         q = self.db.collection(S.COL_SENTINEL_RUNS).order_by("startedAt", direction=firestore.Query.DESCENDING).limit(limit)
         return [{"id": s.id, **(s.to_dict() or {})} for s in q.stream()]
 
+    # -- console reads: cheap polling (an empty result costs one read) ---------
+    def get_logs_since(self, since: datetime, limit: int = 200) -> list[dict[str, Any]]:
+        """Log entries with timestamp >= since, oldest first (callers de-duplicate by id)."""
+        q = (self.db.collection(S.COL_SENTINEL_LOG).where(filter=FieldFilter("timestamp", ">=", since))
+             .order_by("timestamp").limit(limit))
+        return [{"id": s.id, **(s.to_dict() or {})} for s in q.stream()]
+
+    def get_runs_since(self, since: datetime, limit: int = 500) -> list[dict[str, Any]]:
+        """Run docs started at/after ``since`` (e.g. farm-local midnight), newest first."""
+        q = (self.db.collection(S.COL_SENTINEL_RUNS).where(filter=FieldFilter("startedAt", ">=", since))
+             .order_by("startedAt", direction=firestore.Query.DESCENDING).limit(limit))
+        return [{"id": s.id, **(s.to_dict() or {})} for s in q.stream()]
+
+    def get_latest_run(self) -> dict[str, Any] | None:
+        runs = self.get_recent_runs(1)
+        return runs[0] if runs else None
+
 
 # --------------------------------------------------------------------------
 # Convenience for scripts
