@@ -1,0 +1,77 @@
+{
+  "__comment": [
+    "Firestore indexes required by PigOps Sentinel. Deploy with",
+    "`firebase deploy --only firestore:indexes --project <PROJECT_ID>` or",
+    "run `infra/setup_gcp.sh` which creates the same indexes via gcloud.",
+    "",
+    "The valve modification log lives in a separate root tree",
+    "(naplo/{hizlaldaId}/termek/{teremId}/szelepek/{szelepId}/modositasok/{id})",
+    "and is only ever read through collectionGroup('modositasok') queries.",
+    "Range filters on `datum` at collection-group scope need an explicit",
+    "collection-group index — without it Firestore returns FAILED_PRECONDITION.",
+    "The production PigOps MCP server hits exactly that error; this file",
+    "provisions the index up front."
+  ],
+  "indexes": [
+    {
+      "collectionGroup": "modositasok",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "telepId", "order": "ASCENDING" },
+        { "fieldPath": "datum", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "modositasok",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "teremId", "order": "ASCENDING" },
+        { "fieldPath": "datum", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "elhullasok",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "teremId", "order": "ASCENDING" },
+        { "fieldPath": "datum", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "elhullasok",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "hizlaldaId", "order": "ASCENDING" },
+        { "fieldPath": "datum", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "feladatok",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "done", "order": "ASCENDING" },
+        { "fieldPath": "deadline", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "feladatok",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "done", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "modositasok",
+      "fieldPath": "datum",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION" },
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" },
+        { "order": "DESCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}
