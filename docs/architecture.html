@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PigOps Sentinel — architecture</title>
+<style>
+  /* Rendered at exactly 1500×1000 (3:2) and captured to docs/architecture.png */
+  html, body { margin: 0; background: #ffffff; }
+  body { width: 1500px; height: 1000px; overflow: hidden; font: 16px/1.35 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif; color: #172033; position: relative; }
+  .title { position: absolute; left: 48px; top: 30px; }
+  .title h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -.2px; }
+  .title p { margin: 4px 0 0; font-size: 15px; color: #5b6778; }
+  .stack { position: absolute; right: 48px; top: 34px; display: flex; gap: 8px; }
+  .stack span { font-size: 12.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: #1a4fd6; background: #e8effd; border: 1px solid #c8d7f8; border-radius: 999px; padding: 5px 11px; }
+  .box { position: absolute; border-radius: 14px; border: 1.5px solid #cfd6e1; background: #fff; box-shadow: 0 2px 8px rgba(23,32,51,.06); }
+  .box h3 { margin: 0; padding: 12px 16px 6px; font-size: 15px; font-weight: 800; letter-spacing: .3px; text-transform: uppercase; color: #1a2437; }
+  .box h3 small { display: block; font-size: 12px; font-weight: 500; text-transform: none; letter-spacing: 0; color: #6b7686; margin-top: 2px; }
+  .box .body { padding: 0 16px 14px; font-size: 14px; color: #33405a; }
+  .box.gcp { background: #f7f9fc; }
+  .box.agent { border-color: #1a4fd6; box-shadow: 0 0 0 4px #e8effd, 0 2px 8px rgba(26,79,214,.15); }
+  .phase { display: flex; align-items: flex-start; gap: 10px; margin: 8px 0; }
+  .phase .n { flex: none; width: 24px; height: 24px; border-radius: 50%; background: #1a4fd6; color: #fff; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .phase .n.d { background: #6b7686; }        /* deterministic */
+  .phase b { font-weight: 700; }
+  .phase small { color: #6b7686; }
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-right: 4px; }
+  .tag.llm { background: #e8effd; color: #1a4fd6; } .tag.det { background: #eef1f5; color: #4b5563; }
+  .kv { margin: 6px 0 0; padding: 0; list-style: none; }
+  .kv li { margin: 3px 0; }
+  .kv code { font: 12.5px/1.2 Consolas, "Cascadia Mono", monospace; background: #f1f4f8; padding: 1px 5px; border-radius: 4px; color: #1a2437; }
+  .legend { position: absolute; left: 48px; bottom: 26px; font-size: 12.5px; color: #5b6778; display: flex; gap: 18px; align-items: center; }
+  .legend i { display: inline-block; width: 26px; height: 0; border-top: 2.5px solid #1a4fd6; vertical-align: middle; margin-right: 6px; }
+  .legend i.read { border-top-style: dashed; border-color: #6b7686; }
+  .legend i.write { border-color: #d63a3a; }
+  svg.arrows { position: absolute; left: 0; top: 0; width: 1500px; height: 1000px; pointer-events: none; }
+  .lbl { font-size: 12.5px; fill: #5b6778; font-weight: 600; }
+  .lbl.blue { fill: #1a4fd6; } .lbl.red { fill: #d63a3a; }
+</style>
+</head>
+<body>
+  <div class="title">
+    <h1>PigOps Sentinel — how one run works</h1>
+    <p>An autonomous farm-monitoring agent on top of PigOps (Firestore). No user request triggers it: Cloud Scheduler wakes it every 15 minutes.</p>
+  </div>
+  <div class="stack"><span>Gemini 3.5 Flash · Vertex AI</span><span>Google ADK</span><span>Cloud Run</span><span>Firestore</span><span>Cloud Scheduler</span></div>
+
+  <!-- left column: trigger + agent service -->
+  <div class="box" style="left:48px; top:120px; width:250px; height:112px;">
+    <h3>Cloud Scheduler<small>sentinel-tick · */15 min · OIDC</small></h3>
+    <div class="body">POST <code style="font-family:Consolas,monospace">/run</code> on the private agent service — the only way in.</div>
+  </div>
+
+  <div class="box gcp agent" style="left:48px; top:280px; width:520px; height:560px;">
+    <h3>Cloud Run · sentinel-agent<small>FastAPI · one run per request · concurrency 1 · runs as sentinel-agent@ (aiplatform.user, datastore.user)</small></h3>
+    <div class="body">
+      <div class="phase"><span class="n d">1</span><div><b>Scan</b> <span class="tag det">deterministic</span><br><small>rules over the farm snapshot → candidates: MORTALITY_SPIKE · DEADLINE_RISK · SILENT_ROOM · VALVE_INSTABILITY. Already-handled candidates are skipped (open Sentinel task, notified deadline, identical NOISE/WATCH verdict inside the cooldown) — quiet runs cost 0 tokens.</small></div></div>
+      <div class="phase"><span class="n">2</span><div><b>Investigate</b> <span class="tag llm">Google ADK · Gemini 3.5 Flash on Vertex AI</span><br><small>one LlmAgent, one session per run; the model chooses its own look-ups: get_structure · get_room_stats · get_mortality_history · get_farm_mortality_overview · get_open_tasks · get_valve_log — names in, names out, never raw IDs.</small></div></div>
+      <div class="phase"><span class="n">3</span><div><b>Decide</b> <span class="tag llm">structured output</span><br><small>NOISE · WATCH · ACT (+ severity, English reasoning citing the numbers it retrieved).</small></div></div>
+      <div class="phase"><span class="n d">4</span><div><b>Act</b> <span class="tag det">guardrails in code</span><br><small>create_task for the farm's responsible person (dedup window, per-run cap, assignee fallback noted) · send_notification (FCM) — DEADLINE_RISK notifies the assignee + farm manager instead of duplicating the task.</small></div></div>
+      <div class="phase"><span class="n d">5</span><div><b>Follow up</b> <span class="tag det">every run, even quiet ones</span><br><small>its own tasks: open past 24 h → severity up + manager nudged + <i>escalation</i> logged; closed → outcome logged (the seed of learning).</small></div></div>
+    </div>
+  </div>
+
+  <!-- middle: Firestore -->
+  <div class="box gcp" style="left:660px; top:165px; width:360px; height:675px;">
+    <h3>Firestore<small>the PigOps data model, field-for-field</small></h3>
+    <div class="body">
+      <ul class="kv">
+        <li><b>reads</b> (farm data)</li>
+        <li><code>telepek/{farm}/hizlaldak/{barn}/termek/{room}/szelepek</code></li>
+        <li><code>…/elhullasok</code> mortality · <code>…/feladatok</code> tasks + work log</li>
+        <li><code>naplo/…/modositasok</code> valve log · <code>users</code>, <code>jogosultsagok</code></li>
+      </ul>
+      <ul class="kv" style="margin-top:14px">
+        <li><b>writes</b> (the agent's footprint)</li>
+        <li><code>…/feladatok</code> new tasks — exactly the shape the PigOps app reads, plus <code>source: sentinel</code> markers</li>
+        <li><code>sentinelLog/{id}</code> <b>the decision log</b> — observation · contextGathered · reasoning · decision · severity · actionTaken · escalation … one document per outcome, NOISE included</li>
+        <li><code>sentinelRuns/{runId}</code> live phase, counters, status of every run</li>
+      </ul>
+      <div style="margin-top:16px; font-size:12.5px; color:#6b7686">Demo dataset: the app's own "PigOps" demo farm (A-Telep / B-Telep, 12 rooms, 192 valves, 21 days of history, 6 planted anomalies + 3 decoys) — <code>python -m sentinel.seed --reset</code>. No real farm data.</div>
+    </div>
+  </div>
+
+  <!-- right: FCM + console + viewers -->
+  <div class="box" style="left:1110px; top:120px; width:340px; height:118px;">
+    <h3>Firebase Cloud Messaging<small>push to the app on the farm</small></h3>
+    <div class="body">assignee / farm manager notified; no device token → recorded as <i>skipped</i>, never silent.</div>
+  </div>
+
+  <div class="box gcp" style="left:1110px; top:300px; width:340px; height:300px;">
+    <h3>Cloud Run · sentinel-console<small>FastAPI + Server-Sent Events · public · read-only · runs as sentinel-console@ (datastore.viewer)</small></h3>
+    <div class="body">
+      Live feed of <code>sentinelLog</code>: every card = <b>Observed</b> / <b>Reasoned</b> (the tool trace with the model's why → finding) / <b>Acted</b>. Colour by decision; escalations distinct. Header: live phase ("investigating B-Telep / 5.Terem"), last run, runs today, tasks created today.
+    </div>
+  </div>
+
+  <div class="box" style="left:1110px; top:660px; width:340px; height:180px;">
+    <h3>People<small>where the initiative lands</small></h3>
+    <div class="body">
+      <b>Farm manager &amp; workers</b> — see new tasks in the PigOps app, get the pushes, close the tasks.<br><br>
+      <b>Anyone</b> — watches the agent think on the console.
+    </div>
+  </div>
+
+  <!-- arrows -->
+  <svg class="arrows" viewBox="0 0 1500 1000">
+    <defs>
+      <marker id="ab" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1a4fd6"/></marker>
+      <marker id="ag" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7686"/></marker>
+      <marker id="ar" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d63a3a"/></marker>
+    </defs>
+    <!-- scheduler → agent -->
+    <path d="M173,232 L173,278" stroke="#1a4fd6" stroke-width="2.5" fill="none" marker-end="url(#ab)"/>
+    <text x="184" y="262" class="lbl blue">every 15 min</text>
+    <!-- agent reads firestore -->
+    <path d="M568,420 L658,420" stroke="#6b7686" stroke-width="2.5" stroke-dasharray="7 5" fill="none" marker-end="url(#ag)"/>
+    <text x="580" y="410" class="lbl">read farm data</text>
+    <!-- agent writes firestore -->
+    <path d="M568,600 L658,600" stroke="#d63a3a" stroke-width="2.5" fill="none" marker-end="url(#ar)"/>
+    <text x="574" y="590" class="lbl red">tasks · log · runs</text>
+    <!-- agent → FCM (over the top) -->
+    <path d="M568,330 C620,142 700,142 780,142 L960,142 C1040,142 1070,158 1108,186" stroke="#d63a3a" stroke-width="2.5" fill="none" marker-end="url(#ar)"/>
+    <text x="1000" y="133" class="lbl red">send_notification</text>
+    <!-- firestore → console (SSE) -->
+    <path d="M1020,450 L1108,450" stroke="#6b7686" stroke-width="2.5" stroke-dasharray="7 5" fill="none" marker-end="url(#ag)"/>
+    <text x="1024" y="440" class="lbl">poll → SSE</text>
+    <!-- console → people, FCM → people -->
+    <path d="M1280,600 L1280,658" stroke="#1a4fd6" stroke-width="2.5" fill="none" marker-end="url(#ab)"/>
+    <text x="1290" y="634" class="lbl blue">live console</text>
+    <path d="M1440,238 C1492,400 1492,560 1440,660" stroke="#1a4fd6" stroke-width="2.5" fill="none" marker-end="url(#ab)"/>
+    <text x="1461" y="455" class="lbl blue">push</text>
+  </svg>
+
+  <div class="legend"><span><i></i>control / people</span><span><i class="read"></i>reads</span><span><i class="write"></i>writes / actions</span><span style="margin-left:14px">Model calls go to <b>Vertex AI</b> only (location <code style="font-family:Consolas,monospace">global</code>); nothing goes to the public Gemini API.</span></div>
+</body>
+</html>
