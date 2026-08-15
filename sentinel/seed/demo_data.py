@@ -140,9 +140,16 @@ class DemoDataBuilder:
         return start + timedelta(hours=hour)
 
     def _t_today_before_now(self, fraction: float) -> datetime:
-        """A point today at ``fraction`` of the time elapsed since midnight — always <= now."""
-        elapsed = self.now - self.today_start
-        return self.today_start + elapsed * max(0.02, min(fraction, 0.98))
+        """A point today at ``fraction`` of the working time elapsed so far — always <= now.
+
+        The working day starts at 05:30 farm-local; if it is still early, the
+        window falls back to "since midnight" so seeded events never sit in the
+        future.
+        """
+        work_start = self.today_start + timedelta(hours=5, minutes=30)
+        start = work_start if self.now > work_start + timedelta(hours=1) else self.today_start
+        elapsed = self.now - start
+        return start + elapsed * max(0.02, min(fraction, 0.98))
 
     def _working_hour(self) -> float:
         return self.rng.uniform(5.5, 17.0)

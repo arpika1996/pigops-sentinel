@@ -91,3 +91,70 @@ def snapshot_from_plan(plan: SeedPlan, clock: Clock, farm_id: str = "demo-farm")
         t.work_log_count = worklog.get(t.id, 0)
     users_by_email = {u.email.lower(): u for uid, u in users.items() if uid in perms and u.email}
     return FarmSnapshot(structure, dict(valves), dict(mortality_today), dict(changes_today), open_tasks, users_by_email, clock.now(), clock.tz)
+
+
+# --------------------------------------------------------------------------
+# A repository stand-in for the agent tools (history queries), built from a plan
+# --------------------------------------------------------------------------
+class FakeRepository:
+    """Implements the read methods the agent tools use, over a seed plan."""
+
+    def __init__(self, plan: SeedPlan, clock: Clock, farm_id: str = "demo-farm") -> None:
+        from datetime import date, timedelta
+
+        from sentinel.repository import DailyCount
+
+        self.clock = clock
+        self.telep_id = farm_id
+        self._DailyCount = DailyCount
+        self._timedelta = timedelta
+        self.mortality: list[MortalityEvent] = []
+        self.changes: list[ValveChange] = []
+        self.worklog: dict[str, int] = defaultdict(int)
+        for w in plan.writes:
+            segs = _segs(w.path)
+            d = w.data
+            if len(segs) == 4 and segs[2] == S.COL_ELHULLASOK:
+                self.mortality.append(MortalityEvent(
+                    id=segs[3], room=RoomRef(farm_id, d["hizlaldaId"], d["teremId"]), terem_name=d["teremName"],
+                    hizlalda_name=d["hizlaldaName"], szelep_name=d.get("szelepName"), darab=d["darab"], ok=d.get("ok"),
+                    datum=d["datum"], suly=d.get("suly"),
+                ))
+            elif segs[0] == S.COL_NAPLO and segs[-2] == S.COL_MODOSITASOK:
+                self.changes.append(ValveChange(
+                    id=segs[-1], room=RoomRef(d["telepId"], d["hizlaldaId"], d["teremId"]), szelep_id=d["szelepId"],
+                    szelep_name=d["szelepName"], modositas=d["modositas"], datum=d["datum"], abszolut=d.get("abszolut", False),
+                ))
+            elif len(segs) == 6 and segs[4] == S.COL_MUNKAK:
+                self.worklog[segs[3]] += 1
+        self.mortality.sort(key=lambda e: e.datum)
+        self.changes.sort(key=lambda c: c.datum)
+        self.calls: list[tuple] = []
+
+    def get_mortality_events(self, since, until=None, terem_id=None):
+        self.calls.append(("get_mortality_events", since, until, terem_id))
+        return [e for e in self.mortality if e.datum >= since and (until is None or e.datum < until) and (terem_id is None or e.room.terem_id == terem_id)]
+
+    def get_mortality_history(self, terem_id: str, days: int):
+        self.calls.append(("get_mortality_history", terem_id, days))
+        today = self.clock.today()
+        first = today - self._timedelta(days=days - 1)
+        per_day = {first + self._timedelta(days=i): self._DailyCount(first + self._timedelta(days=i), 0) for i in range(days)}
+        for e in self.mortality:
+            if e.room.terem_id != terem_id:
+                continue
+            d = self.clock.local_day(e.datum)
+            if d in per_day:
+                per_day[d].count += e.darab
+                per_day[d].events += 1
+        return [per_day[k] for k in sorted(per_day)]
+
+    def get_valve_log(self, terem_id: str, days: int):
+        self.calls.append(("get_valve_log", terem_id, days))
+        first = self.clock.today() - self._timedelta(days=days - 1)
+        since = self.clock.day_bounds(first)[0]
+        return [c for c in self.changes if c.room.terem_id == terem_id and c.datum >= since]
+
+    def get_task_work_log_count(self, task_id: str) -> int:
+        self.calls.append(("get_task_work_log_count", task_id))
+        return self.worklog.get(task_id, 0)

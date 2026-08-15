@@ -51,6 +51,20 @@ class Settings(BaseSettings):
         ),
     )
     gemini_model: str = Field(default="gemini-3.5-flash")
+    task_language: str = Field(
+        default="en",
+        description=(
+            "Language of the task title/description the agent writes for farm "
+            "workers ('en' per the hackathon spec; 'hu' for a real Hungarian farm). "
+            "Reasoning and the log are always English."
+        ),
+    )
+    model_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    max_tool_calls_per_candidate: int = Field(
+        default=12,
+        ge=1,
+        description="Safety stop: an investigation that keeps calling tools is cut here.",
+    )
     firestore_emulator_host: str | None = Field(
         default=None,
         description="Set (e.g. 127.0.0.1:8080) to talk to the local emulator.",
