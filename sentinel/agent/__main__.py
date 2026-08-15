@@ -5,7 +5,7 @@
     python -m sentinel.agent --json
 
 Useful while developing the agent; the real entry point (which also logs and
-acts) is the run orchestrator added in later steps.
+acts) is ``python -m sentinel.run``.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import warnings
 
 from ..config import settings
 from ..firestore_client import describe_target, get_db
+from ..logbook import action_kind
 from ..repository import PigOpsRepository
 from ..scanner import run_scan
 from .investigator import investigate_candidates
@@ -79,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  Decision : {d.decision}" + (f" / {d.severity}" if d.severity else ""))
             print(f"  Reasoning: {d.reasoning}")
             if d.action_title:
-                kind = "Notify   " if c.signal_type == "DEADLINE_RISK" else "Task     "
+                kind = "Notify   " if action_kind(c.signal_type) == "notification" else "Task     "
                 print(f"  {kind}: {d.action_title}\n             {d.action_body}")
             if d.watch_reason:
                 print(f"  Re-check : {d.watch_reason}")

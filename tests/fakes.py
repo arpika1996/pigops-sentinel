@@ -158,3 +158,27 @@ class FakeRepository:
     def get_task_work_log_count(self, task_id: str) -> int:
         self.calls.append(("get_task_work_log_count", task_id))
         return self.worklog.get(task_id, 0)
+
+    # ---------------------------------------------------------- sentinel log/runs
+    # (in-memory mirrors of PigOpsRepository.write_log / upsert_run / get_recent_*)
+    def write_log(self, entry: dict) -> str:
+        if not hasattr(self, "logs"):
+            self.logs = []
+        log_id = f"log-{len(self.logs) + 1:04d}"
+        self.logs.append({"id": log_id, **dict(entry)})
+        return log_id
+
+    def get_recent_logs(self, limit: int = 100) -> list[dict]:
+        logs = getattr(self, "logs", [])
+        return sorted(logs, key=lambda e: e["timestamp"], reverse=True)[:limit]
+
+    def upsert_run(self, run_id: str, **fields) -> None:
+        if not hasattr(self, "runs"):
+            self.runs = {}
+        self.runs.setdefault(run_id, {}).update(fields)
+        self.calls.append(("upsert_run", run_id, dict(fields)))
+
+    def get_recent_runs(self, limit: int = 20) -> list[dict]:
+        runs = getattr(self, "runs", {})
+        docs = [{"id": rid, **d} for rid, d in runs.items()]
+        return sorted(docs, key=lambda d: d.get("startedAt") or self.clock.now(), reverse=True)[:limit]
