@@ -4,7 +4,7 @@
 **Hosted project URL:** https://sentinel-console-5b6y6vof6a-ew.a.run.app (live, read-only console)
 **Repository:** https://github.com/arpika1996/pigops-sentinel (public; spin-up instructions in README.md)
 **Architecture diagram:** `docs/architecture.png` in the repo (upload the same file to Devpost)
-**Video:** ‹YouTube URL›
+**Video:** https://vimeo.com/1218536394 (3:53, public)
 
 ---
 
