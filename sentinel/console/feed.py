@@ -89,7 +89,14 @@ class ConsoleFeed:
 
         # new log entries
         since = self.last_seen or (self.repo.clock.now() - timedelta(days=1))
-        fresh = [e for e in self.repo.get_logs_since(since) if e["id"] not in self._seen_ids]
+        batch = self.repo.get_logs_since(since)
+        # the world was reset (seed --reset-log) while this instance was alive: the newest entries we know
+        # of no longer exist (or the runs are gone) → start over and tell every client to re-render
+        newest_known = {e["id"] for e in self.entries if e.get("timestamp") == self.last_seen}
+        vanished = bool(newest_known) and not (newest_known & {e["id"] for e in batch})
+        if vanished or (self.repo.get_latest_run() is None and (self.latest_run is not None or self.entries)):
+            return self._reload_after_reset()
+        fresh = [e for e in batch if e["id"] not in self._seen_ids]
         for e in fresh:                                   # oldest first from the query
             self._seen_ids.add(e["id"])
             self.entries.insert(0, e)
@@ -113,6 +120,13 @@ class ConsoleFeed:
         if events:
             events.append({"type": "stats", "stats": self.stats()})
         return events
+
+    def _reload_after_reset(self) -> list[dict[str, Any]]:
+        self.entries, self._seen_ids, self.runs, self.latest_run, self.last_seen = [], set(), {}, None, None
+        self._run_signature = None
+        self.load_initial()
+        log.info("log reset detected — reloaded: %d entries", len(self.entries))
+        return [{"type": "state", **self.state()}]
 
     # --------------------------------------------------------------- state
     def state(self) -> dict[str, Any]:

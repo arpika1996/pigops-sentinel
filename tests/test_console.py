@@ -169,3 +169,31 @@ def test_events_route_wiring(client):
     """The route exists and is a text/event-stream (a full GET would never end — headers only via HEAD-like probe)."""
     routes = {r.path: r for r in client.app.routes}
     assert "/events" in routes and "GET" in routes["/events"].methods
+
+
+def test_a_reset_of_the_log_is_noticed_and_re_rendered(feed, repo):
+    """`seed --reset-log` empties sentinelLog and sentinelRuns while a console instance is alive: the feed must
+    drop its stale picture and push a fresh `state` to every client instead of showing ghosts."""
+    assert len(feed.entries) == 6 and feed.latest_run is not None
+    repo.logs.clear(); repo.runs.clear()
+    events = feed.poll()
+    assert [e["type"] for e in events] == ["state"]
+    assert events[0]["entries"] == [] and events[0]["run"] is None and events[0]["stats"]["runsToday"] == 0
+    assert feed.entries == [] and feed.latest_run is None
+    # and it picks up the new world afterwards
+    repo.upsert_run("fresh", status="ok", phase="done", startedAt=repo.clock.now(), tasksCreated=1)
+    assert [e["type"] for e in feed.poll()] == ["run", "stats"]
+
+
+def test_a_reset_followed_by_a_new_run_is_noticed_too(feed, repo, frozen_clock):
+    """The usual demo sequence: `seed --reset --reset-log`, then a tick — by the next poll the runs are not empty,
+    but the newest entries we knew of are gone → still a full re-render, no ghosts."""
+    repo.logs.clear(); repo.runs.clear()
+    repo.upsert_run("new", status="running", phase="scanning", startedAt=frozen_clock.now() + timedelta(minutes=1))
+    repo.write_log({"id": None, "timestamp": frozen_clock.now() + timedelta(minutes=1), "status": "decided", "decision": "ACT",
+                    "severity": "high", "roomName": "B-Telep / 5.Terem", "signalType": "MORTALITY_SPIKE", "observation": "o",
+                    "reasoning": "r", "contextGathered": [], "farmName": "PigOps", "runId": "new"})
+    events = feed.poll()
+    assert [e["type"] for e in events] == ["state"]
+    assert len(events[0]["entries"]) == 1 and events[0]["entries"][0]["runId"] == "new" and events[0]["run"]["id"] == "new"
+    assert feed.poll() == []
