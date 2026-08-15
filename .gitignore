@@ -1,0 +1,54 @@
+# ---- Secrets: never commit these ----
+.env
+.env.*
+!.env.example
+*.json.key
+*-sa.json
+*service-account*.json
+*serviceAccount*.json
+*firebase-adminsdk*.json
+credentials.json
+token.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+pip-log.txt
+
+# ---- Firestore emulator / Firebase local state ----
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+pubsub-debug.log
+.firebase/
+emulator-data/
+firestore-export/
+
+# ---- gcloud / local tooling ----
+.gcloud/
+*.log
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- Node (console tooling, if any) ----
+node_modules/
