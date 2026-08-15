@@ -6,8 +6,18 @@ Browser zoom 110–125 % so the cards are readable at 1080p.
 
 ## Pre-flight (10 minutes before recording)
 
-The scheduler is normally **paused** (`gcloud scheduler jobs describe sentinel-tick --location europe-west1` → `PAUSED`);
-a manual `gcloud scheduler jobs run …` works while paused, so you do NOT need to resume it for the recording.
+The scheduler is normally **paused** (`gcloud scheduler jobs describe sentinel-tick --location europe-west1` → `PAUSED`).
+⚠️ A manual `gcloud scheduler jobs run …` is **refused while the job is paused**
+(`FAILED_PRECONDITION: Job.state must be ENABLED for RunJob`), so enable it for the take and pause it again afterwards:
+
+```bash
+gcloud scheduler jobs resume sentinel-tick --location europe-west1   # before recording
+gcloud scheduler jobs pause  sentinel-tick --location europe-west1   # after recording
+```
+
+While it is enabled a scheduled tick also fires at :00/:15/:30/:45 — start the take **just after** a quarter hour so
+an automatic run cannot collide with the one you trigger (an overlapping run is refused as `skipped`).
+
 Open three Google Cloud Console tabs (Cloud Run services, sentinel-agent logs, Cloud Scheduler) — the rules require
 showing the backend on Google Cloud in the video.
 
