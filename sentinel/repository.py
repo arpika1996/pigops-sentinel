@@ -338,6 +338,8 @@ class PigOpsRepository:
             signal_type=d.get("signalType"),
             sentinel_run_id=d.get("sentinelRunId"),
             escalated_at=_dt(d.get("escalatedAt")),
+            escalation_count=_int(d.get("escalationCount"), 0),
+            sentinel_outcome_logged_at=_dt(d.get("sentinelOutcomeLoggedAt")),
             sentinel_notified_at=_dt(d.get("sentinelNotifiedAt")),
             sentinel_notify_count=_int(d.get("sentinelNotifyCount"), 0),
         )
@@ -411,6 +413,13 @@ class PigOpsRepository:
         """Stamp a task the Sentinel just notified about (extra fields, ignored by the app):
         the scanner and the actor use it to not nag about the same task every run."""
         self.update_task(task_id, sentinelNotifiedAt=at, sentinelNotifyCount=firestore.Increment(1))
+
+    def escalate_task(self, task_id: str, severity: str, at: datetime) -> None:
+        """Follow-up: raise the severity and stamp the escalation (the app keeps showing the task)."""
+        self.update_task(task_id, severity=severity, escalatedAt=at, escalationCount=firestore.Increment(1))
+
+    def mark_task_outcome_logged(self, task_id: str, at: datetime) -> None:
+        self.update_task(task_id, sentinelOutcomeLoggedAt=at)
 
     def find_recent_sentinel_task(self, terem_id: str, signal_type: str, within_hours: int) -> Task | None:
         """Dedup lookup: an open Sentinel task for the same room+signal, or any

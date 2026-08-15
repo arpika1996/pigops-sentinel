@@ -183,9 +183,10 @@ class Actor:
         if existing is not None:
             out.status = DEDUPLICATED
             out.task_id, out.task_title = existing.id, existing.title
-            ago = _ago(existing.created_at, self.repo.clock.now())
-            out.reason = (f"an {'open' if not existing.done else 'recently closed'} Sentinel task for {_signal_label(c.signal_type)} "
-                          f"in {c.room_name} already exists{f' (created {ago})' if ago else ''}: '{existing.title}'")
+            since = ago(existing.created_at, self.repo.clock.now())
+            state = "an open" if not existing.done else "a recently closed"
+            out.reason = (f"{state} Sentinel task for {_signal_label(c.signal_type)} "
+                          f"in {c.room_name} already exists{f' (created {since})' if since else ''}: '{existing.title}'")
             return out
 
         if self.tasks_created >= self.cfg.max_tasks_per_run:
@@ -221,7 +222,7 @@ class Actor:
         window = timedelta(hours=self.cfg.dedup_window_hours)
         if task.sentinel_notified_at is not None and now - task.sentinel_notified_at < window:
             out.status = DEDUPLICATED
-            out.reason = f"the Sentinel already notified about this task {_ago(task.sentinel_notified_at, now)}; not repeating it"
+            out.reason = f"the Sentinel already notified about this task {ago(task.sentinel_notified_at, now)}; not repeating it"
             return out
 
         recipients: list[tuple[User, str]] = []
@@ -288,11 +289,11 @@ def _signal_label(signal_type: str) -> str:
     return signal_type.replace("_", " ").lower()
 
 
-def _ago(then: datetime | None, now: datetime) -> str:
+def ago(then: datetime | None, now: datetime) -> str:
     """'32 min ago' / '5 h ago' / '3 days ago' — '' when unknown."""
     if then is None:
         return ""
-    hours = (now - then).total_seconds() / 3600
+    hours = max(0.0, (now - then).total_seconds() / 3600)   # clock skew must not print negatives
     if hours < 1:
         return f"{int(hours * 60)} min ago"
     if hours < 48:

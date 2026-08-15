@@ -1,4 +1,4 @@
-"""One Sentinel run, end to end: scan → investigate → decide → act → log.
+"""One Sentinel run, end to end: scan → investigate → decide → act → log → follow up.
 
     python -m sentinel.run                # a real run: writes sentinelLog + sentinelRuns
     python -m sentinel.run --json
@@ -22,7 +22,10 @@ What it guarantees:
   run doc plus a run-level log entry, never a silent exit.
 
 Phase 4 (task creation / notification) runs between "decided" and "logged"
-through :class:`~sentinel.actions.Actor`; Phase 5 (follow-up) is next.
+through :class:`~sentinel.actions.Actor`; Phase 5 (:class:`~sentinel.followup.FollowUp`)
+runs at the end of EVERY run — quiet ones too — over the Sentinel's own
+tasks: escalate what stayed open past the window, log the outcome of what
+was closed.
 """
 
 from __future__ import annotations
@@ -42,6 +45,7 @@ from typing import Any, Callable
 from .actions import ActionOutcome, Actor
 from .agent.investigator import InvestigationResult, Investigator, StatusCallback
 from .config import Settings, settings as default_settings
+from .followup import FollowUp, FollowUpReport
 from .logbook import build_log_entry, run_failure_entry
 from .scanner import Candidate, FarmSnapshot, load_snapshot, partition_handled, scan
 
@@ -58,11 +62,13 @@ RUN_SKIPPED = "skipped"  # refused because another run is still in progress
 PHASE_SCANNING = "scanning"
 PHASE_INVESTIGATING = "investigating"
 PHASE_ACTING = "acting"
+PHASE_FOLLOWING_UP = "following_up"
 PHASE_DONE = "done"
 
 Loader = Callable[[Any, Settings], FarmSnapshot]
 InvestigatorFactory = Callable[..., Any]   # (repo, snapshot, run_id, cfg, status) -> Investigator-like
 ActorFactory = Callable[..., Any]          # (repo, snapshot, run_id, cfg) -> Actor-like
+FollowUpFactory = Callable[..., Any]       # (repo, snapshot, run_id, cfg) -> FollowUp-like
 
 
 @dataclass
@@ -84,6 +90,7 @@ class RunReport:
     skip_reason: str | None = None
     tasks_created: int = 0
     notifications_sent: int = 0
+    followup: FollowUpReport | None = None
 
     @property
     def decided(self) -> int:
@@ -114,6 +121,10 @@ class RunReport:
             "candidates": len(self.candidates), "handled": len(self.handled), "decided": self.decided, "failed": self.failed,
             "decisions": dict(self.decisions), "tasksCreated": self.tasks_created, "notificationsSent": self.notifications_sent,
             "actions": [a.as_log(json_safe=True) if a else None for a in self.actions],
+            "followUp": {
+                "checked": self.followup.checked, "escalated": self.followup.escalated, "closed": self.followup.closed,
+                "items": [i.summary for i in self.followup.items], "error": self.followup.error,
+            } if self.followup else None,
             "tokens": self.total_tokens, "latencyMs": self.latency_ms,
             "logIds": list(self.log_ids), "error": self.error, "skipReason": self.skip_reason,
         }
@@ -137,6 +148,7 @@ class SentinelRun:
         load: Loader = load_snapshot,
         investigator_factory: InvestigatorFactory = Investigator,
         actor_factory: ActorFactory = Actor,
+        followup_factory: FollowUpFactory = FollowUp,
     ) -> None:
         self.repo = repo
         self.cfg = cfg or default_settings
@@ -145,6 +157,7 @@ class SentinelRun:
         self.load = load
         self.investigator_factory = investigator_factory
         self.actor_factory = actor_factory
+        self.followup_factory = followup_factory
         now = repo.clock.now()
         # the id reads in farm-local time ("20260815-112704-…"), the timestamps stay UTC-aware
         self.report = RunReport(run_id=new_run_id(repo.clock.now_local()), trigger=trigger, started_at=now)
@@ -164,7 +177,8 @@ class SentinelRun:
 
         self._upsert(status=RUN_RUNNING, phase=PHASE_SCANNING, currentTarget=None, trigger=self.trigger,
                      model=self.cfg.gemini_model, candidates=0, handled=0, decided=0, failed=0,
-                     decisions={"NOISE": 0, "WATCH": 0, "ACT": 0}, tasksCreated=0, notificationsSent=0, error=None)
+                     decisions={"NOISE": 0, "WATCH": 0, "ACT": 0}, tasksCreated=0, notificationsSent=0,
+                     followedUp=0, escalated=0, closedOutcomes=0, error=None)
 
         # ---- Phase 1: scan (deterministic) --------------------------------
         self.status(PHASE_SCANNING, "loading the farm snapshot")
@@ -203,18 +217,35 @@ class SentinelRun:
                 if inv is not None:
                     await inv.close()
 
+        # ---- Phase 5: follow up on the Sentinel's own tasks (every run) ---
+        self._upsert(phase=PHASE_FOLLOWING_UP, currentTarget=None)
+        self.status(PHASE_FOLLOWING_UP, "re-checking the Sentinel's own tasks")
+        try:
+            fu = self.followup_factory(self.repo, snapshot, rep.run_id, self.cfg).run()
+            rep.followup = fu
+            for item in fu.items:
+                item.log_id = self.repo.write_log(item.entry)
+                rep.log_ids.append(item.log_id)
+                self.status("logged", item.summary)
+            self._upsert(followedUp=fu.checked, escalated=fu.escalated, closedOutcomes=fu.closed, lastLogId=rep.log_ids[-1] if rep.log_ids else None)
+        except Exception as exc:  # noqa: BLE001
+            return self._fail(PHASE_FOLLOWING_UP, exc)
+
         # ---- wrap up ------------------------------------------------------
         rep.finished_at = self.repo.clock.now()
         if rep.results and rep.decided == 0:
             rep.status = RUN_FAILED
             rep.error = "every investigation failed"
-        elif rep.failed:
+        elif rep.failed or (rep.followup and rep.followup.error):
             rep.status = RUN_PARTIAL
+            if rep.followup and rep.followup.error:
+                rep.error = f"follow-up: {rep.followup.error}"
         else:
             rep.status = RUN_OK
         self._upsert(status=rep.status, phase=PHASE_DONE, currentTarget=None, finishedAt=rep.finished_at,
                      latencyMs=rep.latency_ms, tokens=rep.total_tokens, error=rep.error)
-        self.status(PHASE_DONE, f"{rep.status}: {rep.decided} decided, {rep.failed} failed")
+        fu_note = f", {rep.followup.escalated} escalated, {rep.followup.closed} closed" if rep.followup and rep.followup.items else ""
+        self.status(PHASE_DONE, f"{rep.status}: {rep.decided} decided, {rep.failed} failed{fu_note}")
         log.info("run %s %s: %d candidate(s), %d decided, %d failed", rep.run_id, rep.status, len(rep.candidates), rep.decided, rep.failed)
         return rep
 
@@ -321,6 +352,15 @@ def main(argv: list[str] | None = None) -> int:
               f"{rep.total_tokens} tokens, {time.perf_counter() - t0:.1f} s")
         for c, why in rep.handled:
             print(f"  [{c.signal_type}] {c.room_name}: handled earlier — {why}")
+        if rep.followup:
+            fu = rep.followup
+            print(f"  Follow-up: {fu.checked} Sentinel task(s) checked, {fu.escalated} escalated, {fu.closed} closed"
+                  + (f" — ERROR {fu.error}" if fu.error else ""))
+            for item in fu.items:
+                print(f"    {item.kind}: {item.summary}   → sentinelLog/{item.log_id}")
+                if item.action is not None:
+                    for n in item.action.notifications:
+                        print(f"      notify {n.to}: {n.status}" + (f" ({n.reason})" if n.reason else ""))
         for r, a, log_id in zip(rep.results, rep.actions, rep.log_ids):
             d = r.decision
             verdict = f"{d.decision}{' / ' + d.severity if d and d.severity else ''}" if d else f"FAILED ({r.error})"

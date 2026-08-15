@@ -22,6 +22,8 @@ from .scanner import Candidate
 STATUS_DECIDED = "decided"     # the model returned a valid decision
 STATUS_FAILED = "failed"       # investigation error / no valid decision (still logged)
 STATUS_RUN_FAILED = "run_failed"  # the run itself broke before/while investigating
+STATUS_ESCALATED = "escalated"  # follow-up: a Sentinel task stayed open past the window
+STATUS_CLOSED = "closed"        # follow-up: a Sentinel task was closed — the outcome
 
 SIGNAL_RUN = "RUN"             # signalType of run-level entries (no room)
 
@@ -94,6 +96,72 @@ def run_failure_entry(run_id: str, farm_name: str, phase: str, error: str, at: d
         "status": STATUS_RUN_FAILED,
         "error": error,
         "phase": phase,
+    }
+
+
+def escalation_entry(*, run_id: str, farm_name: str, room_name: str, task: Any, at: datetime, from_severity: str,
+                     to_severity: str, reason: str, observation: str, action: Any = None) -> dict[str, Any]:
+    """Follow-up (SPEC §4 Phase 5): a Sentinel task open past the escalation window."""
+    return {
+        # ---- SPEC §5 ------------------------------------------------------
+        "runId": run_id,
+        "timestamp": at,
+        "farmName": farm_name,
+        "roomName": room_name,
+        "signalType": task.signal_type or "TASK",
+        "observation": observation,
+        "contextGathered": [],
+        "reasoning": reason,
+        "decision": "ACT",
+        "severity": to_severity,
+        "actionTaken": action.as_log() if action is not None else None,
+        "escalation": {"fromSeverity": from_severity, "toSeverity": to_severity, "reason": reason},
+        "latencyMs": 0,
+        # ---- extras -------------------------------------------------------
+        "status": STATUS_ESCALATED,
+        "phase": "follow-up",
+        "error": None,
+        "taskId": task.id,
+        "taskTitle": task.title,
+        "proposedAction": None,
+        "watchReason": None,
+    }
+
+
+def outcome_entry(*, run_id: str, farm_name: str, room_name: str, task: Any, at: datetime, observation: str,
+                  closed_at: datetime, open_hours: float | None, deaths_since: int, work_log_entries: int) -> dict[str, Any]:
+    """Follow-up (SPEC §4 Phase 5): a Sentinel task was closed — what came of it."""
+    return {
+        # ---- SPEC §5 ------------------------------------------------------
+        "runId": run_id,
+        "timestamp": at,
+        "farmName": farm_name,
+        "roomName": room_name,
+        "signalType": task.signal_type or "TASK",
+        "observation": observation,
+        "contextGathered": [],
+        "reasoning": "",
+        "decision": None,
+        "severity": task.severity,
+        "actionTaken": None,
+        "escalation": None,
+        "latencyMs": 0,
+        # ---- extras -------------------------------------------------------
+        "status": STATUS_CLOSED,
+        "phase": "follow-up",
+        "error": None,
+        "taskId": task.id,
+        "taskTitle": task.title,
+        "outcome": {
+            "closedAt": closed_at,
+            "openHours": open_hours,
+            "deathsSince": deaths_since,
+            "workLogEntries": work_log_entries,
+            "escalations": task.escalation_count,
+            "createdByRun": task.sentinel_run_id,
+        },
+        "proposedAction": None,
+        "watchReason": None,
     }
 
 

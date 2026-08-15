@@ -149,6 +149,8 @@ class FakeRepository:
                     completed_at=d.get("completedAt"), category=d.get("category"), source=d.get("source"),
                     severity=d.get("severity"), signal_type=d.get("signalType"), sentinel_run_id=d.get("sentinelRunId"),
                     sentinel_notified_at=d.get("sentinelNotifiedAt"), sentinel_notify_count=d.get("sentinelNotifyCount", 0),
+                    escalated_at=d.get("escalatedAt"), escalation_count=d.get("escalationCount", 0),
+                    sentinel_outcome_logged_at=d.get("sentinelOutcomeLoggedAt"),
                 )
             elif segs[0] == S.COL_USERS and len(segs) == 2:
                 self.users[segs[1]] = User(uid=segs[1], email=d.get("email"), display_name=d.get("displayName"),
@@ -239,7 +241,9 @@ class FakeRepository:
         self.calls.append(("update_task", task_id, dict(fields)))
         t = self.tasks[task_id]
         mapping = {"sentinelNotifiedAt": "sentinel_notified_at", "sentinelNotifyCount": "sentinel_notify_count",
-                   "severity": "severity", "escalatedAt": "escalated_at", "done": "done", "deadline": "deadline"}
+                   "severity": "severity", "escalatedAt": "escalated_at", "escalationCount": "escalation_count",
+                   "sentinelOutcomeLoggedAt": "sentinel_outcome_logged_at", "done": "done", "deadline": "deadline",
+                   "completedAt": "completed_at", "status": "status"}
         for k, v in fields.items():
             if k in mapping:
                 setattr(t, mapping[k], v)
@@ -247,6 +251,17 @@ class FakeRepository:
     def mark_task_notified(self, task_id: str, at) -> None:
         t = self.tasks[task_id]
         self.update_task(task_id, sentinelNotifiedAt=at, sentinelNotifyCount=t.sentinel_notify_count + 1)
+
+    def escalate_task(self, task_id: str, severity: str, at) -> None:
+        t = self.tasks[task_id]
+        self.update_task(task_id, severity=severity, escalatedAt=at, escalationCount=t.escalation_count + 1)
+
+    def mark_task_outcome_logged(self, task_id: str, at) -> None:
+        self.update_task(task_id, sentinelOutcomeLoggedAt=at)
+
+    def close_task(self, task_id: str, at) -> None:
+        """Test helper: what a worker does in the app."""
+        self.update_task(task_id, done=True, status=S.TASK_STATUS_DONE, completedAt=at)
 
     def find_recent_sentinel_task(self, terem_id: str, signal_type: str, within_hours: int) -> Task | None:
         from datetime import timedelta

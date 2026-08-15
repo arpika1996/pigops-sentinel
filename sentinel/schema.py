@@ -215,7 +215,9 @@ class Task:
     severity: str | None = None
     signal_type: str | None = None
     sentinel_run_id: str | None = None
-    escalated_at: datetime | None = None
+    escalated_at: datetime | None = None          # last follow-up escalation of this Sentinel task
+    escalation_count: int = 0
+    sentinel_outcome_logged_at: datetime | None = None  # the closed task's outcome entry was written
     sentinel_notified_at: datetime | None = None  # last DEADLINE_RISK notification the Sentinel sent about it
     sentinel_notify_count: int = 0
     work_log_count: int | None = None  # filled lazily by the repository
