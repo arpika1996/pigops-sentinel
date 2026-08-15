@@ -6,11 +6,15 @@ Browser zoom 110–125 % so the cards are readable at 1080p.
 
 ## Pre-flight (10 minutes before recording)
 
+The scheduler is normally **paused** (`gcloud scheduler jobs describe sentinel-tick --location europe-west1` → `PAUSED`);
+a manual `gcloud scheduler jobs run …` works while paused, so you do NOT need to resume it for the recording.
+Open three Google Cloud Console tabs (Cloud Run services, sentinel-agent logs, Cloud Scheduler) — the rules require
+showing the backend on Google Cloud in the video.
+
 ```bash
 cd C:\Projects\pigops-sentinel && .venv\Scripts\activate
 
-# 1. clean slate: fresh demo farm, empty log — do this right AFTER a quarter-hour tick
-#    (the scheduler runs at :00 :15 :30 :45; start at e.g. :02 so nothing fires during the take)
+# 1. clean slate: fresh demo farm, empty log (the console notices the reset by itself and re-renders empty)
 python -m sentinel.seed --reset --reset-log
 
 # 2. sanity: 6 candidates, 0 decoys
@@ -67,8 +71,16 @@ It is over in ~10 seconds — no model call at all.
 
 (The header shows *idle · last run … · 0 decided · 0 tasks*; the stats show 6 already handled.)
 
-**3:20 – 3:50 · Where it lands + guardrails**
-> "The tasks are real PigOps tasks — the app shows them, workers close them, and the Sentinel writes down what came of it. Guardrails are code, not prompt: dedup window, five new tasks per run at most, an explained fallback when nobody is assignable, and every model call goes to Vertex AI only — the process refuses to start if it finds an API key."
+**3:20 – 3:50 · It runs on Google Cloud (REQUIRED by the rules — show the Console) + guardrails**
+Switch to a browser tab with the Google Cloud Console, project `pigops-sentinel`, and show in ~20 s:
+1. **Cloud Run → Services**: `sentinel-agent` and `sentinel-console` with their `…run.app` URLs and the green ticks
+   (https://console.cloud.google.com/run?project=pigops-sentinel)
+2. **Cloud Run → sentinel-agent → Logs**: the `POST /run?trigger=scheduler … 200` and `run … ok: N candidate(s)` lines from the run you just watched
+3. **Cloud Scheduler**: the `sentinel-tick` job, `*/15 * * * *` (https://console.cloud.google.com/cloudscheduler?project=pigops-sentinel)
+4. optionally **Vertex AI → Dashboard / Model Garden → Gemini 3.5 Flash** request count (https://console.cloud.google.com/vertex-ai?project=pigops-sentinel)
+> "All of this runs on Google Cloud: two Cloud Run services — the private agent that Cloud Scheduler wakes, and the public console — Firestore underneath, and every model call on Vertex AI, Gemini 3.5 Flash. The tasks are real PigOps tasks — the app shows them, workers close them, and the Sentinel writes down what came of it. Guardrails are code, not prompt: dedup window, five new tasks per run at most, an explained fallback when nobody is assignable, and the process refuses to start if it finds a Gemini API key — Vertex only."
+
+(Have these three Console tabs open and logged in BEFORE recording; keep the browser zoom readable.)
 
 **3:50 – 4:05 · Close**
 > "PigOps Sentinel: an agent that watches a farm on its own, decides with judgement, acts through the tools it's allowed to use, follows up when ignored — and shows its reasoning for every single decision, including the ones where it decided everything is fine. Built with Google ADK, Gemini 3.5 Flash on Vertex AI, Cloud Run, Firestore and Cloud Scheduler. Thank you."
@@ -81,5 +93,5 @@ It is over in ~10 seconds — no model call at all.
   first tick 4 minutes *before* recording and start the take on a full console — you lose the live "investigating…"
   header but the whole thing fits in real time.
 - If the model's wording differs from the script (it will, slightly), read what is on the card — the numbers are the same every take.
-- After recording, leave the scheduler running so the judges see a live console with runs today; the demo data can be re-seeded any time.
+- After recording, decide whether to `gcloud scheduler jobs resume sentinel-tick --location europe-west1` for the judging window (a live console with runs today; a few cents a day) or leave it paused — the console keeps showing the full log either way.
 - Devpost: the diagram is `docs/architecture.png` (3:2, 0.6 MB); the console screenshot is `docs/console.png`.
