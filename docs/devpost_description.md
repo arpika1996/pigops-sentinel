@@ -6,6 +6,8 @@
 **Architecture diagram:** `docs/architecture.png` in the repo (upload the same file to Devpost)
 **Video:** https://vimeo.com/1218536394 (3:53, public)
 
+**Pre-existing code disclosure:** The PigOps platform (Flutter/Firebase, in production since 2025) and its Firestore data model pre-date the hackathon; `sentinel/schema.py` mirrors that existing model field-for-field. Everything else in the repository — the entire `sentinel/` package, the seed, the agent, both Cloud Run services and the infra scripts — was written during the submission period.
+
 ---
 
 ## Inspiration
@@ -28,9 +30,9 @@ Every outcome — including "this room is fine" — is one document in the decis
 
 - **Google ADK 2.x** — one `LlmAgent` with six read tools (`FunctionTool`), structured output (a Pydantic `Decision`), one session per run; a `before_tool_callback` enforces a per-candidate tool budget.
 - **Gemini 3.5 Flash on Vertex AI** (location `global`) — every model call; the process refuses to start if it finds a Gemini API key, so nothing can leak to the public API.
-- **Cloud Run** — two services from one image: the private `sentinel-agent` (`POST /run`, OIDC only, concurrency 1) and the public `sentinel-console` (FastAPI + Server-Sent Events).
+- **Cloud Run** — two services from one image: the private `sentinel-agent` (`POST /run`, OIDC only, concurrency 1) and the public `sentinel-console` (FastAPI; the page polls — 30 s idle, 2 s during a run, nothing while the tab is hidden — so watching the agent never holds an instance open).
 - **Firestore** — the PigOps data model, field-for-field, plus the agent's own `sentinelLog` and `sentinelRuns` collections; **Cloud Scheduler** ticks it; **Firebase Cloud Messaging** for the pushes.
-- Python 3.13, FastAPI, pydantic-settings; 104 tests that need neither the model nor Firestore (a pure seed builder and a faked repository); `infra/setup_gcp.sh` bootstraps the whole GCP project, `infra/deploy.sh` builds and deploys both services and the scheduler in one go.
+- Python 3.13, FastAPI, pydantic-settings; 107 tests that need neither the model nor Firestore (a pure seed builder and a faked repository); `infra/setup_gcp.sh` bootstraps the whole GCP project, `infra/deploy.sh` builds and deploys both services and the scheduler in one go.
 
 ## Data
 
@@ -57,4 +59,4 @@ Point it at a real farm (the data model is already the production one), let the 
 
 ## Built with
 
-Python · Google ADK · Gemini 3.5 Flash · Vertex AI · Cloud Run · Firestore · Cloud Scheduler · Firebase Cloud Messaging · FastAPI · Server-Sent Events · Cloud Build · Artifact Registry
+Python · Google ADK · Gemini 3.5 Flash · Vertex AI · Cloud Run · Firestore · Cloud Scheduler · Firebase Cloud Messaging · FastAPI · Cloud Build · Artifact Registry

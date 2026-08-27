@@ -78,7 +78,7 @@ python -m sentinel.run                   # the real thing: scan → investigate 
 
 **4. Watch it:** `python -m sentinel.console` → http://localhost:8081 (live, read-only). Run `python -m sentinel.run` in another terminal and watch the header switch to "investigating …" and the cards arrive.
 
-**5. Tests** (no LLM, no Firestore — the seed plan is pure and the repository is faked): `python -m pytest` → 102 tests.
+**5. Tests** (no LLM, no Firestore — the seed plan is pure and the repository is faked): `python -m pytest` → 107 tests.
 
 ## Deploy (Cloud Run + Cloud Scheduler, ~5 minutes)
 
