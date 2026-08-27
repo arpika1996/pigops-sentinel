@@ -88,9 +88,9 @@
   </div>
 
   <div class="box gcp" style="left:1110px; top:300px; width:340px; height:300px;">
-    <h3>Cloud Run · sentinel-console<small>FastAPI + Server-Sent Events · public · read-only · runs as sentinel-console@ (datastore.viewer)</small></h3>
+    <h3>Cloud Run · sentinel-console<small>FastAPI · public · read-only · runs as sentinel-console@ (datastore.viewer)</small></h3>
     <div class="body">
-      Live feed of <code>sentinelLog</code>: every card = <b>Observed</b> / <b>Reasoned</b> (the tool trace with the model's why → finding) / <b>Acted</b>. Colour by decision; escalations distinct. Header: live phase ("investigating B-Telep / 5.Terem"), last run, runs today, tasks created today.
+      Live feed of <code>sentinelLog</code>: every card = <b>Observed</b> / <b>Reasoned</b> (the tool trace with the model's why → finding) / <b>Acted</b>. Colour by decision; escalations distinct. Header: live phase ("investigating B-Telep / 5.Terem"), last run, runs today, tasks created today.<br><br>The page polls — 2 s during a run, 30 s idle, nothing on a hidden tab — and the server touches Firestore only while somebody is watching, so the service still scales to zero.
     </div>
   </div>
 
@@ -121,9 +121,9 @@
     <!-- agent → FCM (over the top) -->
     <path d="M568,330 C620,142 700,142 780,142 L960,142 C1040,142 1070,158 1108,186" stroke="#d63a3a" stroke-width="2.5" fill="none" marker-end="url(#ar)"/>
     <text x="1000" y="133" class="lbl red">send_notification</text>
-    <!-- firestore → console (SSE) -->
+    <!-- firestore → console -->
     <path d="M1020,450 L1108,450" stroke="#6b7686" stroke-width="2.5" stroke-dasharray="7 5" fill="none" marker-end="url(#ag)"/>
-    <text x="1024" y="440" class="lbl">poll → SSE</text>
+    <text x="1024" y="440" class="lbl">on demand</text>
     <!-- console → people, FCM → people -->
     <path d="M1280,600 L1280,658" stroke="#1a4fd6" stroke-width="2.5" fill="none" marker-end="url(#ab)"/>
     <text x="1290" y="634" class="lbl blue">live console</text>
