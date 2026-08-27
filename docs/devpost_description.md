@@ -12,7 +12,7 @@
 
 ## Inspiration
 
-PigOps is a farm-management platform running on real pig farms in Hungary: workers record deaths, valve counts, tasks and their progress. Everything is there — but nobody looks at it unless they open the app. The manager finds out about a mortality spike at the end of the day, an overdue repair when the animals are already suffering, a room nobody has visited when it is too late. The platform never had *initiative*. PigOps Sentinel adds it: an agent that watches the farm on its own schedule, decides what matters, and acts.
+PigOps is my product: a farm-management platform I built for the pig farms I work with every day. Workers record deaths, valve counts, tasks and their progress — every number is in there. But nobody looks at it unless they open the app, and the sentence I kept hearing from the managers was always the same one: *I found out too late.* A mortality spike surfaces at the end of the day; an overdue repair when the animals are already suffering; a room nobody has walked into for days. The platform had all the data and no *initiative*. PigOps Sentinel is the initiative: an agent that watches the farm on its own schedule, decides what matters, and acts — without anyone asking it to. This is not a problem I went looking for; it is the one that was already on my desk.
 
 ## What it does
 
@@ -33,6 +33,13 @@ Every outcome — including "this room is fine" — is one document in the decis
 - **Cloud Run** — two services from one image: the private `sentinel-agent` (`POST /run`, OIDC only, concurrency 1) and the public `sentinel-console` (FastAPI; the page polls — 30 s idle, 2 s during a run, nothing while the tab is hidden — so watching the agent never holds an instance open).
 - **Firestore** — the PigOps data model, field-for-field, plus the agent's own `sentinelLog` and `sentinelRuns` collections; **Cloud Scheduler** ticks it; **Firebase Cloud Messaging** for the pushes.
 - Python 3.13, FastAPI, pydantic-settings; 107 tests that need neither the model nor Firestore (a pure seed builder and a faked repository); `infra/setup_gcp.sh` bootstraps the whole GCP project, `infra/deploy.sh` builds and deploys both services and the scheduler in one go.
+
+## Architecture decisions
+
+- **The model never writes.** The agent gets six read-only tools; every write — task, notification, escalation, outcome — is deterministic code the model cannot argue with (dedup window, per-run cap, notification stamps, assignee fallback). What comes back from the LLM is a typed `Decision`, not an action. That line is what makes an autonomous writer safe to leave running.
+- **State lives in Firestore, never in the process.** A run is a `sentinelRuns` document (phase, counters, status); a verdict is a `sentinelLog` document; progress is stamped on the tasks themselves (`sentinelNotifiedAt`, `escalatedAt`, `sentinelOutcomeLoggedAt`). Nothing is held in memory between ticks, so the service scales to zero, survives being killed mid-run, and an overlap guard refuses a second concurrent run.
+- **Least privilege, end to end.** Separate service accounts (agent: `aiplatform.user` + `datastore.user`; console: `datastore.viewer` only), the agent service is private — an OIDC call from Cloud Scheduler is the only way in — and the process refuses to boot if it finds a Gemini API key, so model calls can only reach Vertex AI. Tools take and return names, never raw IDs.
+- **Failure is a logged outcome, not silence.** A failed investigation, a failed action and a failed run each leave their own entry (`failed`, `run_failed`, `partial`); one bad candidate never takes the run down with it. All of it is covered by 107 tests that need neither the model nor Firestore.
 
 ## Data
 
@@ -60,3 +67,9 @@ Point it at a real farm (the data model is already the production one), let the 
 ## Built with
 
 Python · Google ADK · Gemini 3.5 Flash · Vertex AI · Cloud Run · Firestore · Cloud Scheduler · Firebase Cloud Messaging · FastAPI · Cloud Build · Artifact Registry
+
+---
+
+## Judge-facing testing instructions (Devpost "Testing instructions" field — HARD LIMIT ~255 characters, longer text is silently dropped)
+
+Just open the console URL: public, read-only, live - the agent ticks every 15 min, so cards arrive on their own. Card = Observed / Reasoned (expand for the tool trace) / Acted; grey = NOISE, it chose not to act. Demo data. Local repro: README, 5 min.
